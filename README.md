@@ -2,7 +2,7 @@
 
 ## Descripción General
 
-**Protocolo de Higiene, Limpieza y Desinfección** (PHLYD) es una aplicación web desarrollada con **Google Apps Script** para gestionar y estructurar los procedimientos de limpieza y desinfección de equipos e instalaciones en un entorno industrial. El sistema está diseñado para planificar cronogramas de limpieza, registrar su ejecución, validar resultados y ofrecer seguimiento a través de interfaces web accesibles para operarios y supervisores. :contentReference[oaicite:0]{index=0}
+**Protocolo de Higiene, Limpieza y Desinfección** (PHLYD) es una aplicación web desarrollada con **Google Apps Script** para gestionar y estructurar los procedimientos de limpieza y desinfección de equipos e instalaciones en un entorno industrial. El sistema está diseñado para planificar cronogramas de limpieza, registrar su ejecución, validar resultados y ofrecer seguimiento a través de interfaces web accesibles para operarios y supervisores.
 
 ---
 
@@ -14,7 +14,7 @@ El sistema tiene como propósito:
 - Permitir la planificación de actividades de higiene en múltiples niveles jerárquicos (máquinas, componentes, elementos).
 - Registrar y hacer seguimiento de las acciones de limpieza ejecutadas por operarios.
 - Proveer herramientas de validación para supervisores.
-- Facilitar la visualización del estado de limpieza en un tablero consolidado. :contentReference[oaicite:1]{index=1}
+- Facilitar la visualización del estado de limpieza en un tablero consolidado. 
 
 ---
 
@@ -24,7 +24,7 @@ La aplicación está organizada en tres capas principales:
 
 ### Capa de Presentación
 
-La interfaz está desarrollada en **HTML, CSS y JavaScript**, implementada como una única página web que se comunica con el backend mediante la interfaz `google.script.run`. :contentReference[oaicite:2]{index=2}
+La interfaz está desarrollada en **HTML, CSS y JavaScript**, implementada como una única página web que se comunica con el backend mediante la interfaz `google.script.run`. 
 
 ### Capa de Lógica de Negocio
 
@@ -33,14 +33,14 @@ El backend está construido con **Google Apps Script**, encargado de:
 - Autenticación de usuarios.
 - Gestión de datos y almacenamiento.
 - Procesos de planificación y validación de limpieza.
-- Comunicación con la interfaz cliente. :contentReference[oaicite:3]{index=3}
+- Comunicación con la interfaz cliente. 
 
 ### Capa de Persistencia
 
 Los datos se almacenan en estructuras de Google Apps Script vinculadas a:
 
 - **Google Sheets** para registros estructurados.
-- **Sistemas de cache interno** para mejorar el acceso y el rendimiento de lectura. :contentReference[oaicite:4]{index=4}
+- **Sistemas de cache interno** para mejorar el acceso y el rendimiento de lectura. 
 
 ---
 
@@ -52,7 +52,7 @@ El flujo principal del sistema sigue estas etapas:
 
 - El usuario inicia sesión mediante identificación.
 - El sistema valida el rol y proceso asignado.
-- Se cargan jerarquías de máquinas, componentes y elementos para el proceso asignado. :contentReference[oaicite:5]{index=5}
+- Se cargan jerarquías de máquinas, componentes y elementos para el proceso asignado. 
 
 ---
 
@@ -60,28 +60,28 @@ El flujo principal del sistema sigue estas etapas:
 
 - El usuario selecciona elementos de la jerarquía.
 - Se configuran los tipos de limpieza requeridos.
-- La planificación se guarda en estructuras que facilitan su ejecución posterior. :contentReference[oaicite:6]{index=6}
+- La planificación se guarda en estructuras que facilitan su ejecución posterior. 
 
 ---
 
 ### 3. Ejecución y Registro de Limpieza
 
 - Los operarios pueden registrar acciones de limpieza para cada elemento.
-- El sistema controla y actualiza estados según se completan las actividades. :contentReference[oaicite:7]{index=7}
+- El sistema controla y actualiza estados según se completan las actividades. 
 
 ---
 
 ### 4. Validación de Limpieza
 
 - Supervisores pueden validar las acciones completadas por los operarios.
-- La validación asegura que los elementos han sido limpiados según lo planificado. :contentReference[oaicite:8]{index=8}
+- La validación asegura que los elementos han sido limpiados según lo planificado. 
 
 ---
 
 ### 5. Visualización Consolidada
 
 - El sistema presenta un tablero donde se observa el estado de limpieza de todos los elementos.
-- Los estados ayudan en la gestión de prioridades y en el seguimiento de cumplimiento. :contentReference[oaicite:9]{index=9}
+- Los estados ayudan en la gestión de prioridades y en el seguimiento de cumplimiento. 
 
 ---
 
@@ -93,7 +93,7 @@ El sistema administra un modelo jerárquico para la limpieza:
   - **Componentes**
     - **Elementos**
 
-Cada elemento puede tener múltiples tipos de limpieza asociados, y el sistema determina su estado actual en función de los registros existentes. Para mejorar el rendimiento, se utiliza un mecanismo de cache interno que evita múltiples consultas repetidas. :contentReference[oaicite:10]{index=10}
+Cada elemento puede tener múltiples tipos de limpieza asociados, y el sistema determina su estado actual en función de los registros existentes. Para mejorar el rendimiento, se utiliza un mecanismo de cache interno que evita múltiples consultas repetidas. 
 
 ---
 
@@ -106,7 +106,7 @@ El sistema diferencia dos roles principales:
 | Operario   | Planificar y ejecutar limpieza en elementos asignados |
 | Supervisor | Validar limpieza, ver estado consolidado de todos los elementos |
 
-La funcionalidad y visibilidad de datos está filtrada según el rol y el proceso al que pertenece el usuario. :contentReference[oaicite:11]{index=11}
+La funcionalidad y visibilidad de datos está filtrada según el rol y el proceso al que pertenece el usuario. 
 
 ---
 
@@ -114,7 +114,7 @@ La funcionalidad y visibilidad de datos está filtrada según el rol y el proces
 
 ### Comunicación Cliente-Servidor
 
-La comunicación entre la interfaz web y el backend utiliza la API `google.script.run`, que permite invocar funciones de Apps Script desde el navegador y recibir sus resultados de manera asíncrona. :contentReference[oaicite:12]{index=12}
+La comunicación entre la interfaz web y el backend utiliza la API `google.script.run`, que permite invocar funciones de Apps Script desde el navegador y recibir sus resultados de manera asíncrona. 
 
 ---
 
@@ -127,7 +127,7 @@ El sistema mantiene variables de estado global para manejar:
 - Datos seleccionados para planificación
 - Cache de estados de elementos
 
-Estas variables permiten que la interfaz responda rápidamente sin múltiples llamadas innecesarias al backend. :contentReference[oaicite:13]{index=13}
+Estas variables permiten que la interfaz responda rápidamente sin múltiples llamadas innecesarias al backend. 
 
 ---
 
