@@ -1,0 +1,183 @@
+# Protocolo de Higiene, Limpieza y Desinfección
+
+## Descripción General
+
+**Protocolo de Higiene, Limpieza y Desinfección** (PHLYD) es una aplicación web desarrollada con **Google Apps Script** para gestionar y estructurar los procedimientos de limpieza y desinfección de equipos e instalaciones en un entorno industrial. El sistema está diseñado para planificar cronogramas de limpieza, registrar su ejecución, validar resultados y ofrecer seguimiento a través de interfaces web accesibles para operarios y supervisores. :contentReference[oaicite:0]{index=0}
+
+---
+
+## Objetivos del Sistema
+
+El sistema tiene como propósito:
+
+- Centralizar y estandarizar la gestión de protocolos de limpieza y desinfección.
+- Permitir la planificación de actividades de higiene en múltiples niveles jerárquicos (máquinas, componentes, elementos).
+- Registrar y hacer seguimiento de las acciones de limpieza ejecutadas por operarios.
+- Proveer herramientas de validación para supervisores.
+- Facilitar la visualización del estado de limpieza en un tablero consolidado. :contentReference[oaicite:1]{index=1}
+
+---
+
+## Arquitectura del Sistema
+
+La aplicación está organizada en tres capas principales:
+
+### Capa de Presentación
+
+La interfaz está desarrollada en **HTML, CSS y JavaScript**, implementada como una única página web que se comunica con el backend mediante la interfaz `google.script.run`. :contentReference[oaicite:2]{index=2}
+
+### Capa de Lógica de Negocio
+
+El backend está construido con **Google Apps Script**, encargado de:
+
+- Autenticación de usuarios.
+- Gestión de datos y almacenamiento.
+- Procesos de planificación y validación de limpieza.
+- Comunicación con la interfaz cliente. :contentReference[oaicite:3]{index=3}
+
+### Capa de Persistencia
+
+Los datos se almacenan en estructuras de Google Apps Script vinculadas a:
+
+- **Google Sheets** para registros estructurados.
+- **Sistemas de cache interno** para mejorar el acceso y el rendimiento de lectura. :contentReference[oaicite:4]{index=4}
+
+---
+
+## Flujo Funcional
+
+El flujo principal del sistema sigue estas etapas:
+
+### 1. Autenticación y Carga Inicial
+
+- El usuario inicia sesión mediante identificación.
+- El sistema valida el rol y proceso asignado.
+- Se cargan jerarquías de máquinas, componentes y elementos para el proceso asignado. :contentReference[oaicite:5]{index=5}
+
+---
+
+### 2. Planificación de Limpieza
+
+- El usuario selecciona elementos de la jerarquía.
+- Se configuran los tipos de limpieza requeridos.
+- La planificación se guarda en estructuras que facilitan su ejecución posterior. :contentReference[oaicite:6]{index=6}
+
+---
+
+### 3. Ejecución y Registro de Limpieza
+
+- Los operarios pueden registrar acciones de limpieza para cada elemento.
+- El sistema controla y actualiza estados según se completan las actividades. :contentReference[oaicite:7]{index=7}
+
+---
+
+### 4. Validación de Limpieza
+
+- Supervisores pueden validar las acciones completadas por los operarios.
+- La validación asegura que los elementos han sido limpiados según lo planificado. :contentReference[oaicite:8]{index=8}
+
+---
+
+### 5. Visualización Consolidada
+
+- El sistema presenta un tablero donde se observa el estado de limpieza de todos los elementos.
+- Los estados ayudan en la gestión de prioridades y en el seguimiento de cumplimiento. :contentReference[oaicite:9]{index=9}
+
+---
+
+## Modelo de Datos y Gestión de Estado
+
+El sistema administra un modelo jerárquico para la limpieza:
+
+- **Máquinas**
+  - **Componentes**
+    - **Elementos**
+
+Cada elemento puede tener múltiples tipos de limpieza asociados, y el sistema determina su estado actual en función de los registros existentes. Para mejorar el rendimiento, se utiliza un mecanismo de cache interno que evita múltiples consultas repetidas. :contentReference[oaicite:10]{index=10}
+
+---
+
+## Control de Acceso por Roles
+
+El sistema diferencia dos roles principales:
+
+| Rol        | Permisos principales |
+|------------|-----------------------|
+| Operario   | Planificar y ejecutar limpieza en elementos asignados |
+| Supervisor | Validar limpieza, ver estado consolidado de todos los elementos |
+
+La funcionalidad y visibilidad de datos está filtrada según el rol y el proceso al que pertenece el usuario. :contentReference[oaicite:11]{index=11}
+
+---
+
+## Detalles Técnicos
+
+### Comunicación Cliente-Servidor
+
+La comunicación entre la interfaz web y el backend utiliza la API `google.script.run`, que permite invocar funciones de Apps Script desde el navegador y recibir sus resultados de manera asíncrona. :contentReference[oaicite:12]{index=12}
+
+---
+
+### Variables de Estado Global
+
+El sistema mantiene variables de estado global para manejar:
+
+- Usuario actual (`currentUser`)
+- Jerarquía completa de elementos (`maquinasData`)
+- Datos seleccionados para planificación
+- Cache de estados de elementos
+
+Estas variables permiten que la interfaz responda rápidamente sin múltiples llamadas innecesarias al backend. :contentReference[oaicite:13]{index=13}
+
+---
+
+## Estructura de Archivos
+
+```text
+
+/
+├── docs/
+│   └── Functions/
+│       ├── Limpieza/
+│       │   ├── confirmCleaning.html
+│       │   ├── confirmCleaningOperator.html
+│       │   ├── elements.html
+│       │   ├── elementsDetail.html
+│       │   ├── sections.html
+│       │   └── Validations.html
+│       ├── Planeacion/
+│       │   ├── configs.html
+│       │   ├── consolidate.html
+│       │   ├── delete.html
+│       │   ├── planeation.html
+│       │   └── treePlaneation.html
+│       ├── alerts.html
+│       ├── auth.html
+│       ├── consolidateValidate.html
+│       ├── dates.html
+│       ├── debug.html
+│       ├── initload.html
+│       ├── modals.html
+│       ├── report.html
+│       ├── shifts.html
+│       ├── sidebar.html
+│       ├── states.html
+│       ├── stats.html
+│       ├── tabs.html
+│       ├── utils.html
+│       └── variables.html
+├── html/
+│   ├── index.html
+│   └── styles.html
+├── .clasp.json
+├── appsscript.json
+├── Código.js
+└── README.md
+
+```
+---
+
+## Flujo del Sistema
+
+![Arquitectura del sistema](docs/PHLYD.svg)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/practicantetransfdigital/Protocolo-Higiene-Limpieza-y-Desinfeccion)
