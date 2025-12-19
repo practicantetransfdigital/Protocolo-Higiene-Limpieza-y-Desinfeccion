@@ -1,0 +1,3158 @@
+<script>
+// ==================== VARIABLES GLOBALES ====================
+let currentUser = null;
+let maquinasData = [];
+let currentMaquinaId = null;
+let currentElementoId = null;
+let currentElementoNombre = null;
+let currentMaquinaNombre = null;
+let selectedElementosConfig = {};
+let pendingCheckboxData = null;
+let currentElementoTiposLimpieza = [];
+let pendingValidation = false;
+
+// ==================== FUNCIONES DE UTILIDAD ====================
+function showLoading() {
+  document.getElementById('loading-overlay').classList.remove('hidden');
+}
+
+function hideLoading() {
+  document.getElementById('loading-overlay').classList.add('hidden');
+}
+
+function showError(elementId, message) {
+  const element = document.getElementById(elementId);
+  if (element) {
+    element.textContent = message;
+    element.classList.remove('hidden');
+  }
+}
+
+function hideError(elementId) {
+  const element = document.getElementById(elementId);
+  if (element) {
+    element.classList.add('hidden');
+  }
+}
+
+// ==================== AUTENTICACIÓN ====================
+function handleLogin() {
+  console.log('🔐 Intentando login...');
+  const cedula = document.getElementById('cedula-input').value.trim();
+  
+  if (!cedula) {
+    showError('login-error', 'Por favor ingrese su cédula');
+    return;
+  }
+  
+  hideError('login-error');
+  showLoading();
+  
+  console.log('📤 Enviando cédula:', cedula);
+  
+  google.script.run
+    .withSuccessHandler(onLoginSuccess)
+    .withFailureHandler(onLoginError)
+    .autenticarUsuario(cedula);
+}
+
+function onLoginSuccess(result) {
+  hideLoading();
+  console.log('📥 Respuesta login:', result);
+  
+  if (result && result.success) {
+    currentUser = result.usuario;
+    
+    // Limpiar y actualizar UI de usuario
+    const userNameDisplay = document.getElementById('user-name-display');
+    userNameDisplay.textContent = currentUser.nombre;
+    userNameDisplay.innerHTML = ''; // Limpiar contenido previo
+    userNameDisplay.appendChild(document.createTextNode(currentUser.nombre));
+    
+    actualizarIndicadorProceso();
+    
+    // Cambiar a vista dashboard
+    document.getElementById('login-view').classList.add('hidden');
+    document.getElementById('dashboard-view').classList.remove('hidden');
+    
+    // Resetear pestañas a la principal (planeacion)
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+    
+    // Activar pestaña de planeación
+    document.getElementById('tab-planeacion').classList.add('active');
+    document.getElementById('content-planeacion').classList.remove('hidden');
+    
+    // Limpiar datos previos
+    resetearDatos();
+    
+    // Cargar datos iniciales
+    loadInitialData();
+    
+    showAlert("success", "Sesión iniciada", `Bienvenido/a ${currentUser.nombre}`); 
+  } else {
+    showError('login-error', result ? result.message : 'Error de autenticación');
+  }
+}
+
+function onLoginError(error) {
+  hideLoading();
+  console.error('❌ Error login:', error);
+  showError('login-error', 'Error de conexión. Intente nuevamente.');
+}
+
+function handleLogout() {
+  console.log('🚪 Cerrando sesión...');
+  
+  // Resetear todas las variables globales
+  currentUser = null;
+  maquinasData = [];
+  currentMaquinaId = null;
+  currentElementoId = null;
+  currentElementoNombre = null;
+  currentMaquinaNombre = null;
+  selectedElementosConfig = {};
+  pendingCheckboxData = null;
+  currentElementoTiposLimpieza = [];
+  pendingValidation = false;
+  estadosElementosCache = {};
+  
+  // Limpiar todos los contenedores de UI
+  const containersToClear = [
+    'maquinas-menu',
+    'maquinas-tree',
+    'elementos-config-list',
+    'avances-grid',
+    'proceso-content',
+    'planeaciones-grid',
+    'limpieza-sections'
+  ];
+  
+  containersToClear.forEach(id => {
+    const container = document.getElementById(id);
+    if (container) container.innerHTML = '';
+  });
+  
+  // Resetear formularios
+  const forms = document.querySelectorAll('input, textarea, select');
+  forms.forEach(form => {
+    if (form.type !== 'button' && form.type !== 'submit') {
+      form.value = '';
+      form.checked = false;
+    }
+  });
+  
+  // Resetear select de frecuencia
+  const selectFrecuencia = document.getElementById('select-frecuencia');
+  if (selectFrecuencia) selectFrecuencia.value = 'Mensual';
+  
+  // Desmarcar todos los checkboxes del árbol
+  document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+    checkbox.checked = false;
+    checkbox.indeterminate = false;
+  });
+  
+  // Remover clases selected de elementos del árbol
+  document.querySelectorAll('.tree-elemento.selected').forEach(el => {
+    el.classList.remove('selected');
+  });
+  
+  // Resetear pestañas
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+  
+  // Resetear elemento activo en sidebar
+  document.querySelectorAll('.elemento-item.active').forEach(el => {
+    el.classList.remove('active');
+  });
+  
+  // Resetear indicador de proceso
+  const procesoIndicator = document.getElementById('proceso-indicator');
+  if (procesoIndicator) procesoIndicator.innerHTML = '';
+  
+  // Ocultar botones de validación
+  const btnValidarJefe = document.getElementById('btn-validar-jefe');
+  const btnFinalizar = document.getElementById('btn-finalizar');
+  if (btnValidarJefe) btnValidarJefe.classList.add('hidden');
+  if (btnFinalizar) btnFinalizar.classList.add('hidden');
+  
+  // Cambiar vistas
+  document.getElementById('dashboard-view').classList.add('hidden');
+  document.getElementById('login-view').classList.remove('hidden');
+  
+  // Resetear campo de cédula
+  const cedulaInput = document.getElementById('cedula-input');
+  if (cedulaInput) {
+    cedulaInput.value = '';
+    cedulaInput.focus(); // Poner foco en el campo
+  }
+  
+  // Mostrar mensaje de despedida
+  showAlert("info", "Sesión cerrada", "Ha cerrado sesión correctamente", 3000);
+  
+  console.log('✅ Sesión cerrada completamente');
+}
+
+function resetearDatos() {
+  // Resetear datos de máquinas
+  maquinasData = [];
+  
+  // Resetear configuraciones seleccionadas
+  selectedElementosConfig = {};
+  
+  // Resetear cache de estados
+  estadosElementosCache = {};
+  
+  // Resetear datos de elemento actual
+  currentMaquinaId = null;
+  currentElementoId = null;
+  currentElementoNombre = null;
+  currentMaquinaNombre = null;
+  currentElementoTiposLimpieza = [];
+  
+  // Resetear estado de validación pendiente
+  pendingValidation = false;
+  pendingCheckboxData = null;
+  
+  console.log('🔄 Datos reseteados para nueva sesión');
+}
+
+// ==================== CARGA INICIAL ====================
+function loadInitialData() {
+  showLoading();
+  
+  // Usar la nueva función unificada
+  google.script.run
+    .withSuccessHandler(onMaquinasLoaded)
+    .withFailureHandler(onDataError)
+    .obtenerMaquinasConElementos(currentUser.proceso); // ¡CAMBIA AQUÍ!
+}
+
+
+function onMaquinasLoaded(result) {
+  if (result && result.success) {
+    maquinasData = result.maquinas || [];
+    
+    // Cargar estados y luego renderizar
+    cargarEstadosElementos().then(() => {
+      renderSidebarMaquinas();
+      renderMaquinasTree();
+      loadEstadisticas();
+      loadPlaneaciones();
+      hideLoading();
+    });
+  } else {
+    hideLoading();
+    console.error('Error cargando máquinas:', result ? result.message : 'Sin respuesta');
+    maquinasData = [];
+    renderSidebarMaquinas();
+    renderMaquinasTree();
+  }
+}
+
+function onDataError(error) {
+  hideLoading();
+  console.error('Error cargando datos:', error);
+}
+
+// ==================== SIDEBAR ====================
+// ==================== SIDEBAR ====================
+function renderSidebarMaquinas() {
+  const container = document.getElementById('maquinas-menu');
+  container.innerHTML = '';
+  
+  if (!maquinasData || maquinasData.length === 0) {
+    container.innerHTML = '<p style="font-size: 12px; color: #9CA3AF; padding: 10px;">No hay máquinas disponibles</p>';
+    return;
+  }
+  
+  // Primero cargar todos los estados de elementos
+  cargarEstadosElementos().then(() => {
+    maquinasData.forEach((maquina, maquinaIndex) => {
+      const maquinaDiv = document.createElement('div');
+      maquinaDiv.className = 'submenu-wrapper';
+      
+      const submenuId = 'submenu-sidebar-' + maquina.id + '-' + maquinaIndex;
+      const estadoMaquina = determinarEstadoMaquina(maquina.id);
+      
+      // Generar HTML para componentes y elementos
+      let componentesHtml = '';
+      
+      if (maquina.componentes && maquina.componentes.length > 0) {
+        componentesHtml = maquina.componentes.map((componente, compIndex) => {
+          const componenteSubmenuId = `comp-${maquina.id}-${componente.id}-${compIndex}`;
+          const estadoComponente = determinarEstadoComponente(maquina.id, componente.id);
+          
+          const elementosHtml = (componente.elementos || []).map((elem) => {
+            const estadoElemento = determinarEstadoElemento(elem.id);
+            const claseEstado = `estado-${estadoElemento}`;
+            
+            return `
+              <div class="elemento-item ${claseEstado}" 
+                   onclick="selectElemento('${maquina.id}', '${elem.id}', '${maquina.nombre}', '${elem.nombre}', '${componente.nombre}')"
+                   title="Estado: ${estadoElemento.toUpperCase()}">
+                ${elem.nombre}
+              </div>
+            `;
+          }).join('');
+          
+          return `
+            <div class="submenu-wrapper">
+              <div class="submenu-item componente-item ${estadoComponente}" onclick="toggleSubmenu('${componenteSubmenuId}')">
+                <span>${componente.nombre}</span>
+                <span class="menu-arrow" id="arrow-${componenteSubmenuId}">▼</span>
+              </div>
+              <div id="${componenteSubmenuId}" class="submenu-content hidden">
+                ${elementosHtml}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+      
+      maquinaDiv.innerHTML = `
+        <div class="submenu-item maquina-item ${estadoMaquina}" onclick="toggleSubmenu('${submenuId}')">
+          <span>${maquina.nombre}</span>
+          <span class="menu-arrow" id="arrow-${submenuId}">▼</span>
+        </div>
+        <div id="${submenuId}" class="submenu-content hidden">
+          ${componentesHtml}
+        </div>
+      `;
+      container.appendChild(maquinaDiv);
+    });
+  });
+}
+
+function toggleMenu(menuId) {
+  const menu = document.getElementById(menuId);
+  const arrow = document.getElementById(menuId + '-arrow');
+  
+  if (menu) menu.classList.toggle('hidden');
+  if (arrow) arrow.classList.toggle('rotated');
+}
+
+function toggleSubmenu(submenuId) {
+  const submenu = document.getElementById(submenuId);
+  const arrow = document.getElementById('arrow-' + submenuId);
+  
+  if (submenu) submenu.classList.toggle('hidden');
+  if (arrow) arrow.classList.toggle('rotated');
+}
+
+// ==================== TABS ====================
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById('tab-' + tabName).classList.add('active');
+  
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+  document.getElementById('content-' + tabName).classList.remove('hidden');
+  
+  if (tabName === 'avances') {
+    loadEstadisticas();
+  } else if (tabName === 'proceso') {
+    loadProceso();
+  } else if (tabName === 'planeacion') {
+    loadPlaneaciones();
+  }
+}
+
+function showMainView() {
+  switchTab('planeacion');
+}
+
+// ==================== AVANCES (ESTADÍSTICAS) ====================
+function loadEstadisticas() {
+  showLoading();
+  
+  google.script.run
+    .withSuccessHandler(onEstadisticasLoaded)
+    .withFailureHandler(function(error) {
+      hideLoading();
+      console.error('Error cargando estadísticas:', error);
+      renderEstadisticas([]);
+    })
+    .obtenerEstadisticasMaquinas();
+}
+
+function onEstadisticasLoaded(result) {
+  hideLoading();
+  
+  if (result && result.success) {
+    renderEstadisticas(result.estadisticas || []);
+  } else {
+    renderEstadisticas([]);
+  }
+}
+
+function renderEstadisticas(estadisticas) {
+  const container = document.getElementById('avances-grid');
+  container.innerHTML = '';
+  
+  if (!estadisticas || estadisticas.length === 0) {
+    container.innerHTML = '<p class="config-placeholder">No hay estadísticas disponibles</p>';
+    return;
+  }
+  
+  estadisticas.forEach(stat => {
+    const item = document.createElement('div');
+    item.className = 'avance-item';
+    item.innerHTML = `
+      <div class="avance-header">
+        <span class="avance-name">${stat.maquinaNombre}</span>
+        <span class="avance-percentage">${stat.porcentaje} %</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width: ${stat.porcentaje}%"></div>
+      </div>
+    `;
+    container.appendChild(item);
+  });
+}
+
+// ==================== PLANEACIÓN - ÁRBOL DE SELECCIÓN ====================
+function renderMaquinasTree() {
+  const container = document.getElementById('maquinas-tree');
+  container.innerHTML = '';
+  
+  if (!maquinasData || maquinasData.length === 0) {
+    container.innerHTML = '<p class="config-placeholder">No hay máquinas disponibles</p>';
+    return;
+  }
+  
+  maquinasData.forEach((maquina, maquinaIndex) => {
+    const maquinaDiv = document.createElement('div');
+    maquinaDiv.className = 'tree-maquina';
+    
+    const treeId = 'tree-maq-' + maquina.id + '-' + maquinaIndex;
+    
+    let componentesHtml = '';
+    
+    if (maquina.componentes && maquina.componentes.length > 0) {
+      componentesHtml = maquina.componentes.map((componente, compIndex) => {
+        const compTreeId = `tree-comp-${maquina.id}-${componente.id}-${compIndex}`;
+        
+        const elementosHtml = (componente.elementos || []).map((elem) => `
+          <div class="tree-elemento" id="tree-elem-${elem.id}">
+            <input type="checkbox" id="check-elem-${elem.id}" 
+              onclick="toggleElementoSelection('${maquina.id}', '${elem.id}', '${maquina.nombre}', '${elem.nombre}', '${componente.nombre}')">
+            <span>${elem.nombre}</span>
+          </div>
+        `).join('');
+        
+        return `
+          <div class="tree-componente">
+            <div class="tree-componente-header" onclick="toggleTreeComponente('${compTreeId}', event)">
+              <input type="checkbox" id="check-comp-${maquina.id}-${componente.id}" 
+                onclick="event.stopPropagation(); toggleComponenteSelection('${maquina.id}', '${componente.id}')">
+              <span>${componente.nombre}</span>
+              <span class="tree-arrow" id="arrow-${compTreeId}">▼</span>
+            </div>
+            <div id="${compTreeId}" class="tree-elementos hidden">
+              ${elementosHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    maquinaDiv.innerHTML = `
+      <div class="tree-maquina-header" onclick="toggleTreeMaquina('${treeId}', event)">
+        <input type="checkbox" id="check-maq-${maquina.id}" 
+          onclick="event.stopPropagation(); toggleMaquinaSelection('${maquina.id}')">
+        <span>${maquina.nombre}</span>
+        <span class="tree-arrow" id="arrow-${treeId}">▼</span>
+      </div>
+      <div id="${treeId}" class="tree-componentes hidden">
+        ${componentesHtml}
+      </div>
+    `;
+    container.appendChild(maquinaDiv);
+  });
+}
+
+function toggleTreeComponente(compTreeId, event) {
+  // Solo prevenir si el click fue directamente en el checkbox
+  if (event && event.target.type === 'checkbox') {
+    return;
+  }
+  
+  // Reutilizar la lógica existente
+  const tree = document.getElementById(compTreeId);
+  const arrow = document.getElementById('arrow-' + compTreeId);
+  if (tree) tree.classList.toggle('hidden');
+  if (arrow) arrow.classList.toggle('rotated');
+}
+
+function toggleComponenteSelection(maquinaId, componenteId) {
+  const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componenteId);
+  if (!compCheck) return;
+  
+  const isChecked = compCheck.checked;
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  
+  if (!maquina || !maquina.componentes) return;
+  
+  const componente = maquina.componentes.find(c => c.id.toString() === componenteId.toString());
+  if (!componente || !componente.elementos) return;
+  
+  // Seleccionar/deseleccionar todos los elementos del componente
+  componente.elementos.forEach(elem => {
+    const elemCheck = document.getElementById('check-elem-' + elem.id);
+    if (elemCheck) {
+      elemCheck.checked = isChecked;
+      if (isChecked) {
+        addElementoToConfig(maquinaId, elem.id, maquina.nombre, elem.nombre, componente.nombre);
+      } else {
+        removeElementoFromConfig(elem.id);
+      }
+    }
+  });
+  
+  // Actualizar estado de la máquina
+  updateMaquinaCheckState(maquinaId);
+  updateElementosConfigUI();
+}
+
+function toggleTreeMaquina(treeId, event) {
+  // Solo prevenir si el click fue directamente en el checkbox
+  if (event && event.target.type === 'checkbox') {
+    return;
+  }
+  
+  // Reutilizar la lógica existente
+  const tree = document.getElementById(treeId);
+  const arrow = document.getElementById('arrow-' + treeId);
+  if (tree) tree.classList.toggle('hidden');
+  if (arrow) arrow.classList.toggle('rotated');
+}
+
+function toggleMaquinaSelection(maquinaId) {
+  const maquinaCheck = document.getElementById('check-maq-' + maquinaId);
+  if (!maquinaCheck) return;
+  
+  const isChecked = maquinaCheck.checked;
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  
+  if (!maquina || !maquina.componentes) return;
+  
+  // Seleccionar/deseleccionar todos los componentes y elementos
+  maquina.componentes.forEach(componente => {
+    const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componente.id);
+    if (compCheck) {
+      compCheck.checked = isChecked;
+    }
+    
+    // Seleccionar/deseleccionar elementos del componente
+    componente.elementos.forEach(elem => {
+      const elemCheck = document.getElementById('check-elem-' + elem.id);
+      if (elemCheck) {
+        elemCheck.checked = isChecked;
+        if (isChecked) {
+          addElementoToConfig(maquinaId, elem.id, maquina.nombre, elem.nombre, componente.nombre);
+        } else {
+          removeElementoFromConfig(elem.id);
+        }
+      }
+    });
+  });
+  
+  updateElementosConfigUI();
+}
+
+function toggleElementoSelection(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre) {
+  const elemCheck = document.getElementById('check-elem-' + elementoId);
+  if (!elemCheck) return;
+  
+  if (elemCheck.checked) {
+    addElementoToConfig(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre);
+  } else {
+    removeElementoFromConfig(elementoId);
+  }
+  
+  // Actualizar estado del componente y máquina
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  if (maquina && maquina.componentes) {
+    // Encontrar a qué componente pertenece este elemento
+    for (const componente of maquina.componentes) {
+      const elemento = componente.elementos.find(e => e.id.toString() === elementoId.toString());
+      if (elemento) {
+        updateComponenteCheckState(maquinaId, componente.id);
+        break;
+      }
+    }
+  }
+  
+  updateMaquinaCheckState(maquinaId);
+  updateElementosConfigUI();
+}
+
+function updateComponenteCheckState(maquinaId, componenteId) {
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  if (!maquina || !maquina.componentes) return;
+  
+  const componente = maquina.componentes.find(c => c.id.toString() === componenteId.toString());
+  if (!componente || !componente.elementos) return;
+  
+  const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componenteId);
+  if (!compCheck) return;
+  
+  const allChecked = componente.elementos.every(elem => {
+    const check = document.getElementById('check-elem-' + elem.id);
+    return check && check.checked;
+  });
+  
+  const someChecked = componente.elementos.some(elem => {
+    const check = document.getElementById('check-elem-' + elem.id);
+    return check && check.checked;
+  });
+  
+  compCheck.checked = allChecked;
+  compCheck.indeterminate = someChecked && !allChecked;
+}
+
+function addElementoToConfig(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre) {
+  selectedElementosConfig[elementoId] = {
+    maquinaId: maquinaId,
+    elementoId: elementoId,
+    maquinaNombre: maquinaNombre,
+    elementoNombre: elementoNombre,
+    componenteNombre: componenteNombre || 'Componente PRINCIPAL',
+    seco: true,
+    humedo: true,
+    desinfeccion: true
+  };
+  
+  const treeElem = document.getElementById('tree-elem-' + elementoId);
+  if (treeElem) treeElem.classList.add('selected');
+}
+
+function removeElementoFromConfig(elementoId) {
+  delete selectedElementosConfig[elementoId];
+  
+  const treeElem = document.getElementById('tree-elem-' + elementoId);
+  if (treeElem) treeElem.classList.remove('selected');
+}
+
+function updateMaquinaCheckState(maquinaId) {
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  if (!maquina || !maquina.componentes) return;
+  
+  const maquinaCheck = document.getElementById('check-maq-' + maquinaId);
+  if (!maquinaCheck) return;
+  
+  const allChecked = maquina.componentes.every(componente => {
+    const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componente.id);
+    return compCheck && compCheck.checked;
+  });
+  
+  const someChecked = maquina.componentes.some(componente => {
+    const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componente.id);
+    return compCheck && compCheck.checked;
+  });
+  
+  maquinaCheck.checked = allChecked;
+  maquinaCheck.indeterminate = someChecked && !allChecked;
+}
+
+
+function updateElementosConfigUI() {
+  const container = document.getElementById('elementos-config-list');
+  const elementos = Object.values(selectedElementosConfig);
+  
+  if (elementos.length === 0) {
+    container.innerHTML = '<p class="config-placeholder">Seleccione elementos del árbol para configurar sus tipos de limpieza</p>';
+    return;
+  }
+  
+  container.innerHTML = elementos.map(elem => `
+    <div class="elemento-config-item">
+      <div class="elemento-config-name">${elem.maquinaNombre} - ${elem.componenteNombre} - ${elem.elementoNombre}</div>
+      <div class="checkbox-group">
+        <label class="checkbox-item">
+          <input type="checkbox" id="cfg-seco-${elem.elementoId}" ${elem.seco ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'seco', this.checked)">
+          Limpieza Seco
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="cfg-humedo-${elem.elementoId}" ${elem.humedo ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'humedo', this.checked)">
+          Limpieza Húmedo
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="cfg-desinfeccion-${elem.elementoId}" ${elem.desinfeccion ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'desinfeccion', this.checked)">
+          Desinfección
+        </label>
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateElementoConfig(elementoId, tipo, value) {
+  if (selectedElementosConfig[elementoId]) {
+    selectedElementosConfig[elementoId][tipo] = value;
+  }
+}
+
+function guardarPlaneacion() {
+  const elementos = Object.values(selectedElementosConfig);
+  
+  if (elementos.length === 0) {
+    showAlert("info", "¡Upss!", "Por favor seleccione al menos un elemento para planear"); 
+    return;
+  }
+  
+  const sinTipos = elementos.filter(e => !e.seco && !e.humedo && !e.desinfeccion);
+  if (sinTipos.length > 0) {
+    showAlert("info", "¡Upss!", "Cada elemento debe tener al menos un tipo de limpieza seleccionado");
+    return;
+  }
+  
+  const frecuencia = document.getElementById('select-frecuencia').value;
+  
+  console.log('💾 Guardando planeación con estructura jerárquica:', elementos);
+  
+  // Agrupar por máquina y componente
+  const maquinasAgrupadas = {};
+  
+  elementos.forEach(elem => {
+    const maquinaKey = elem.maquinaId;
+    
+    if (!maquinasAgrupadas[maquinaKey]) {
+      maquinasAgrupadas[maquinaKey] = {
+        maquinaId: elem.maquinaId,
+        maquinaNombre: elem.maquinaNombre,
+        componentes: {}
+      };
+    }
+    
+    const componenteKey = elem.componenteNombre || 'Componente PRINCIPAL';
+    
+    if (!maquinasAgrupadas[maquinaKey].componentes[componenteKey]) {
+      maquinasAgrupadas[maquinaKey].componentes[componenteKey] = {
+        nombre: componenteKey,
+        elementos: []
+      };
+    }
+    
+    maquinasAgrupadas[maquinaKey].componentes[componenteKey].elementos.push({
+      elementoId: elem.elementoId,
+      elementoNombre: elem.elementoNombre,
+      seco: elem.seco,
+      humedo: elem.humedo,
+      desinfeccion: elem.desinfeccion
+    });
+  });
+  
+  showLoading();
+  
+  const maquinas = Object.values(maquinasAgrupadas);
+  let saved = 0;
+  let errors = [];
+  
+  maquinas.forEach(maq => {
+    // Preparar datos para guardar
+    const elementosConfig = [];
+    const componentes = Object.values(maq.componentes);
+    
+    componentes.forEach(comp => {
+      elementosConfig.push({
+        componenteNombre: comp.nombre,
+        elementos: comp.elementos
+      });
+    });
+    
+    const datos = {
+      maquinaId: maq.maquinaId,
+      maquinaNombre: maq.maquinaNombre,
+      frecuencia: frecuencia,
+      limpiezaSeco: componentes.some(comp => comp.elementos.some(e => e.seco)),
+      limpiezaHumedo: componentes.some(comp => comp.elementos.some(e => e.humedo)),
+      desinfeccion: componentes.some(comp => comp.elementos.some(e => e.desinfeccion)),
+      elementosConfig: elementosConfig, // Ahora incluye estructura jerárquica
+      componentes: componentes, // Información de componentes
+      usuarioCreador: currentUser ? currentUser.nombre : 'Sistema'
+    };
+    
+    console.log('📤 Enviando datos jerárquicos:', datos);
+    
+    google.script.run
+      .withSuccessHandler(function(result) {
+        saved++;
+        console.log('📥 Respuesta guardar planeación:', result);
+        
+        if (result && !result.success) {
+          errors.push(result.message || 'Error desconocido');
+        }
+        
+        if (saved === maquinas.length) {
+          hideLoading();
+          if (errors.length === 0) {
+            showAlert("success", "¡Éxito!", "Planeación guardada correctamente");
+            selectedElementosConfig = {};
+            renderMaquinasTree();
+            updateElementosConfigUI();
+            loadPlaneaciones();
+            actualizarEstadosSidebar(); // Actualizar estados después de crear planeación
+          } else {
+            showAlert('error', 'Error', 'Algunos errores ocurrieron ' + errors.join(', '));
+          }
+        }
+      })
+      .withFailureHandler(function(error) {
+        saved++;
+        errors.push(error.message || 'Error desconocido');
+        console.error('❌ Error guardando planeación:', error);
+        if (saved === maquinas.length) {
+          hideLoading();
+          showAlert('error', 'Error', 'Error al guardar ' + errors.join(', '));
+        }
+      })
+      .guardarPlaneacion(datos);
+  });
+}
+
+function loadPlaneaciones() {
+  console.log('🔄 Cargando planeaciones...');
+  showLoading();
+  
+  // Si es GEN, obtener todas, si no, por proceso
+  if (currentUser.proceso === 'GENERAL') {
+    google.script.run
+      .withSuccessHandler(onPlaneacionesLoaded)
+      .withFailureHandler(function(error) {
+        hideLoading();
+        console.error('❌ Error cargando planeaciones:', error);
+        renderPlaneaciones([]);
+      })
+      .obtenerTodasLasPlaneaciones(); // ¡NUEVA FUNCIÓN!
+  } else {
+    google.script.run
+      .withSuccessHandler(onPlaneacionesLoaded)
+      .withFailureHandler(function(error) {
+        hideLoading();
+        console.error('❌ Error cargando planeaciones:', error);
+        renderPlaneaciones([]);
+      })
+      .obtenerPlaneacionesPorProceso(currentUser.proceso);
+  }
+}
+
+function onPlaneacionesLoaded(result) {
+  hideLoading();
+  console.log('📥 Respuesta de planeaciones:', result);
+  
+  if (!result) {
+    console.error('❌ Error: Respuesta nula de planeaciones');
+    showError('planeacion-error', 'Error: No se recibió respuesta del servidor');
+    renderPlaneaciones([]);
+    return;
+  }
+  
+  if (result.success) {
+    hideError('planeacion-error');
+    console.log('✅ Planeaciones cargadas:', result.planeaciones ? result.planeaciones.length : 0);
+    renderPlaneaciones(result.planeaciones || []);
+  } else {
+    console.error('❌ Error en planeaciones:', result.message);
+    showError('planeacion-error', result.message || 'Error desconocido al cargar planeaciones');
+    renderPlaneaciones([]);
+  }
+}
+
+async function renderPlaneaciones(planeaciones) {
+  const container = document.getElementById('planeaciones-grid');
+  container.innerHTML = '';
+  
+  if (!planeaciones || planeaciones.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <p class="config-placeholder">No hay planeaciones registradas</p>
+        <button onclick="switchTab('planeacion')" class="btn-principal" style="margin-top: 16px;">
+          Crear primera planeación
+        </button>
+      </div>
+    `;
+    return;
+  }
+  
+  // Procesar datos para obtener estados de limpieza
+  const maquinasDetalladas = await procesarMaquinasConEstados(planeaciones);
+  
+  let html = `
+    <div class="consolidado-detallado">
+      <div class="consolidado-header">
+        <h3 class="header-title">Consolidado Detallado de Limpiezas</h3>
+        <div class="header-stats">
+          <span class="stat-item">
+            <i class="fas fa-industry"></i> ${maquinasDetalladas.length} Máquinas
+          </span>
+          <span class="stat-item">
+            <i class="fas fa-layer-group"></i> ${calcularTotalComponentes(maquinasDetalladas)} Componentes
+          </span>
+          <span class="stat-item">
+            <i class="fas fa-list"></i> ${calcularTotalElementos(maquinasDetalladas)} Elementos
+          </span>
+        </div>
+      </div>
+  `;
+  
+  // Para cada máquina
+  maquinasDetalladas.forEach(maquina => {
+    html += `
+      <div class="maquina-detallada" data-maquina-id="${maquina.maquinaId}">
+    <!-- ENCABEZADO DE MÁQUINA -->
+    <div class="maquina-header">
+      <div class="maquina-info">
+        <div class="maquina-titulo">
+          <h4>${maquina.maquinaNombre}</h4>
+          <span class="maquina-meta">
+            <span class="badge estado ${maquina.estadoGeneral.toLowerCase()}">${maquina.estadoGeneral}</span>
+            <span class="meta-info">ID: ${maquina.maquinaId} | Proceso: ${maquina.proceso || 'GENERAL'}</span>
+          </span>
+        </div>
+        <div class="maquina-creador">
+          <i class="fas fa-user"></i> ${maquina.usuarioCreador}
+          <span class="fecha">${formatFechaSimple(maquina.fechaCreacion)}</span>
+        </div>
+      </div>
+      <div class="maquina-acciones">
+        <!-- Botón de validación (solo visible para jefes y cuando esté listo) -->
+        ${maquina.estadoGeneral === 'COMPLETADO' && maquina.maquinaId ? `
+  <button class="btn-validar-maquina" 
+          onclick="validarMaquinaCompleta('${maquina.maquinaId || ''}', '${maquina.maquinaNombre || ''}')" 
+          title="Validar limpieza completa">
+    <i class="fa-jelly fa-regular fa-thumbs-up"></i> Validar
+  </button>
+` : ''}
+        
+        <button class="btn-eliminar-maquina" 
+                onclick="eliminarPlaneacionMaquina('${maquina.maquinaId}', '${maquina.maquinaNombre}')" 
+                title="Eliminar máquina">
+          <i class="fas fa-trash"></i>
+        </button>
+
+        ${maquina.estadoGeneral === 'VALIDADO' ? `
+  <button class="btn-reporte-maquina" 
+          onclick="generarReporteMaquina('${maquina.maquinaId}', '${maquina.maquinaNombre}')" 
+          title="Generar reporte PDF">
+    <i class="fas fa-file-pdf"></i> Reporte
+  </button>
+` : ''}
+      </div>
+    </div>
+    
+        <!-- RESUMEN DE ESTADOS -->
+        <div class="estados-resumen">
+          <div class="estado-item">
+            <div class="estado-icono completado">
+              <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="estado-info">
+              <div class="estado-cantidad">${maquina.estadisticas.completados}</div>
+              <div class="estado-label">Completados</div>
+            </div>
+          </div>
+          <div class="estado-item">
+            <div class="estado-icono en-proceso">
+              <i class="fas fa-spinner"></i>
+            </div>
+            <div class="estado-info">
+              <div class="estado-cantidad">${maquina.estadisticas.enProceso}</div>
+              <div class="estado-label">En proceso</div>
+            </div>
+          </div>
+          <div class="estado-item">
+            <div class="estado-icono pendiente">
+              <i class="fas fa-clock"></i>
+            </div>
+            <div class="estado-info">
+              <div class="estado-cantidad">${maquina.estadisticas.pendientes}</div>
+              <div class="estado-label">Pendientes</div>
+            </div>
+          </div>
+          <div class="estado-item">
+            <div class="estado-icono validado">
+              <i class="fa-jelly fa-regular fa-thumbs-up"></i>
+            </div>
+            <div class="estado-info">
+              <div class="estado-cantidad">${maquina.estadisticas.validados}</div>
+              <div class="estado-label">Validados</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- INFORMACIÓN DE VALIDACIÓN -->
+  <div class="validacion-resumen" id="validacion-info-${maquina.maquinaId}" 
+       style="${maquina.estadoGeneral === 'VALIDADO' ? '' : 'display: none;'}">
+    <div class="validacion-header">
+      <i class="fa-jelly fa-regular fa-thumbs-up" style="color: #10b981;"></i>
+      <span style="font-weight: 600; color: #065f46;">LIMPIEZA VALIDADA</span>
+    </div>
+    <div class="validacion-detalles">
+      <span id="validador-${maquina.maquinaId}"></span>
+      <span id="fecha-validacion-${maquina.maquinaId}"></span>
+    </div>
+  </div>
+    `;
+    
+    // Para cada componente
+    maquina.componentes.forEach(componente => {
+      html += `
+        <div class="componente-detallado">
+          <!-- ENCABEZADO DE COMPONENTE -->
+          <div class="componente-header">
+            <div class="componente-titulo">
+              <h5>${componente.nombre}</h5>
+              <span class="componente-estado ${componente.estado.toLowerCase()}">
+                ${componente.elementosCompletados}/${componente.totalElementos} elementos
+              </span>
+            </div>
+            <div class="componente-tipos">
+      `;
+      
+      // Mostrar tipos de limpieza del componente
+      if (componente.tiposLimpieza && componente.tiposLimpieza.length > 0) {
+        componente.tiposLimpieza.forEach(tipo => {
+          html += `<span class="tipo-badge ${tipo.toLowerCase()}">${tipo}</span>`;
+        });
+      }
+      
+      html += `
+            </div>
+          </div>
+          
+          <!-- TABLA DE ELEMENTOS -->
+          <div class="elementos-table-container">
+             <table class="elementos-table">
+    <thead>
+      <tr>
+        <th class="col-elemento">Elemento</th>
+        <th class="col-frecuencia">Frecuencia</th> <!-- NUEVA COLUMNA -->
+        <th class="col-tipos">Tipos de Limpieza</th>
+        <th class="col-estado">Estado</th>
+        <th class="col-proxima">Próxima Limpieza</th> <!-- NUEVA COLUMNA -->
+        <th class="col-responsable">Responsable</th>
+        <th class="col-fecha">Fecha</th>
+        <th class="col-validacion">Validación</th>
+      </tr>
+    </thead>
+    <tbody>
+`;
+      
+      // Para cada elemento
+      componente.elementos.forEach(elemento => {
+  // Clase CSS según estado de próxima limpieza
+  const estadoProximaClass = elemento.estadoProxima || 'normal';
+  
+  html += `
+    <tr class="elemento-fila ${elemento.estado.toLowerCase()}">
+      <td class="col-elemento">
+        <div class="elemento-nombre">${elemento.nombre}</div>
+      </td>
+      
+      <td class="col-frecuencia">
+        <div class="elemento-frecuencia">
+          <span class="frecuencia-badge ${elemento.frecuencia.toLowerCase()}">
+            ${elemento.frecuencia}
+          </span>
+        </div>
+      </td>
+      
+      <td class="col-tipos">
+        <div class="elemento-tipos">
+  `;
+  
+  // Mostrar tipos de limpieza del elemento
+  if (elemento.seco) html += '<span class="tipo-item seco">Seco</span>';
+  if (elemento.humedo) html += '<span class="tipo-item humedo">Húmedo</span>';
+  if (elemento.desinfeccion) html += '<span class="tipo-item desinfeccion">Desinfección</span>';
+  
+  html += `
+        </div>
+      </td>
+      
+      <td class="col-estado">
+        <span class="estado-elemento ${elemento.estado.toLowerCase()}">
+          ${obtenerIconoEstado(elemento.estado)} ${elemento.estado}
+        </span>
+      </td>
+      
+      <td class="col-proxima">
+        <div class="proxima-info ${estadoProximaClass}">
+          <div class="proxima-dias">${elemento.diasFaltantes} días</div>
+          <div class="proxima-fecha">${elemento.proximaFecha || 'No disponible'}</div>
+        </div>
+      </td>
+      
+      <td class="col-responsable">
+  `;
+  
+  if (elemento.responsables && elemento.responsables.length > 0) {
+    elemento.responsables.forEach((responsable, index) => {
+      if (index < 2) {
+        html += `<div class="responsable-item">${responsable}</div>`;
+      }
+    });
+    if (elemento.responsables.length > 2) {
+      html += `<div class="responsable-more">+${elemento.responsables.length - 2} más</div>`;
+    }
+  } else {
+    html += '<span class="text-muted">Sin asignar</span>';
+  }
+  
+  html += `
+      </td>
+      
+      <td class="col-fecha">
+  `;
+  
+  if (elemento.ultimaLimpieza) {
+    html += `<div class="fecha-limpieza">${formatFechaSimple(elemento.ultimaLimpieza)}</div>`;
+  } else {
+    html += '<span class="text-muted">No realizada</span>';
+  }
+  
+  html += `
+      </td>
+      
+      <td class="col-validacion">
+  `;
+  
+  if (elemento.validadoPor) {
+    html += `
+      <div class="validacion-info">
+        <div class="validador">${elemento.validadoPor}</div>
+        <div class="fecha-validacion">${formatFechaSimple(elemento.fechaValidacion)}</div>
+      </div>
+    `;
+  } else {
+    html += '<span class="text-muted">Pendiente</span>';
+  }
+  
+  html += `
+      </td>
+    </tr>
+  `;
+});
+      
+      html += `
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    });
+    
+    html += `</div>`; // Cierre de maquina-detallada
+  });
+  
+  html += `</div>`; // Cierre de consolidado-detallado
+  
+  container.innerHTML = html;
+}
+
+// Función para procesar máquinas con estados
+async function procesarMaquinasConEstados(planeaciones) {
+  // Primero, obtener todos los registros de limpieza para calcular estados
+  const registrosLimpieza = await obtenerTodosRegistrosLimpieza();
+  
+  const maquinasMap = new Map();
+  
+  // Procesar cada planeación
+  planeaciones.forEach(plan => {
+    const maquinaId = plan.maquinaId;
+    
+    if (!maquinasMap.has(maquinaId)) {
+      maquinasMap.set(maquinaId, {
+        maquinaId: maquinaId,
+        maquinaNombre: plan.maquinaNombre || 'Sin nombre',
+        frecuencia: plan.frecuencia,
+        usuarioCreador: plan.usuarioCreador || 'Sistema',
+        fechaCreacion: plan.fechaCreacion,
+        estadoGeneral: plan.estado || 'ACTIVA',
+        proceso: plan.procesoAsignado || 'GENERAL',
+        componentes: [],
+        estadisticas: {
+          total: 0,
+          completados: 0,
+          enProceso: 0,
+          pendientes: 0,
+          validados: 0
+        }
+      });
+    }
+    
+    const maquina = maquinasMap.get(maquinaId);
+    
+    // Procesar componentes y elementos
+    if (plan.elementosConfig && Array.isArray(plan.elementosConfig)) {
+      plan.elementosConfig.forEach(componenteConfig => {
+        const componenteNombre = componenteConfig.componenteNombre || 'Componente PRINCIPAL';
+        
+        let componente = maquina.componentes.find(c => c.nombre === componenteNombre);
+        if (!componente) {
+          componente = {
+            nombre: componenteNombre,
+            elementos: [],
+            totalElementos: 0,
+            elementosCompletados: 0,
+            elementosValidados: 0,
+            estado: 'pendiente',
+            tiposLimpieza: []
+          };
+          maquina.componentes.push(componente);
+        }
+        
+        // Procesar elementos del componente
+        if (componenteConfig.elementos && Array.isArray(componenteConfig.elementos)) {
+          componenteConfig.elementos.forEach(elementoConfig => {
+            const elementoId = elementoConfig.elementoId;
+            const elementoNombre = elementoConfig.elementoNombre || 'Elemento';
+            
+            // Buscar registros de limpieza para este elemento
+            const registrosElemento = registrosLimpieza.filter(r => 
+              r.elementoId === elementoId && r.maquinaId === maquinaId
+            );
+            
+            // Calcular estado del elemento
+            const estadoElemento = calcularEstadoElemento(registrosElemento);
+            
+            // Obtener frecuencia específica para este elemento
+            const frecuenciaElemento = plan.frecuencia || 'Mensual';
+            
+            // Calcular días faltantes para próxima limpieza
+            const infoProximaLimpieza = calcularProximaLimpiezaElemento(
+              registrosElemento, 
+              frecuenciaElemento
+            );
+            
+            // Extraer responsables y fechas
+            const responsables = [];
+            let ultimaLimpieza = null;
+            let validadoPor = null;
+            let fechaValidacion = null;
+            
+            registrosElemento.forEach(registro => {
+              if (registro.responsable && !responsables.includes(registro.responsable)) {
+                responsables.push(registro.responsable);
+              }
+              if (registro.fechaRealizacion) {
+                ultimaLimpieza = registro.fechaRealizacion;
+              }
+              if (registro.validadoPor) {
+                validadoPor = registro.validadoPor;
+                fechaValidacion = registro.fechaValidacion;
+              }
+            });
+            
+            const elemento = {
+              id: elementoId,
+              nombre: elementoNombre,
+              seco: elementoConfig.seco,
+              humedo: elementoConfig.humedo,
+              desinfeccion: elementoConfig.desinfeccion,
+              frecuencia: frecuenciaElemento, // ← NUEVO: Frecuencia específica
+              estado: estadoElemento,
+              responsables: responsables,
+              ultimaLimpieza: ultimaLimpieza,
+              validadoPor: validadoPor,
+              fechaValidacion: fechaValidacion,
+              diasFaltantes: infoProximaLimpieza.diasFaltantes, // ← NUEVO: Días faltantes
+              proximaFecha: infoProximaLimpieza.proximaFecha, // ← NUEVO: Próxima fecha
+              estadoProxima: infoProximaLimpieza.estado // ← NUEVO: Estado de próxima limpieza
+            };
+            
+            componente.elementos.push(elemento);
+            componente.totalElementos++;
+            
+            // Actualizar estadísticas del componente
+            if (estadoElemento === 'COMPLETADO' || estadoElemento === 'VALIDADO') {
+              componente.elementosCompletados++;
+            }
+            if (estadoElemento === 'VALIDADO') {
+              componente.elementosValidados++;
+            }
+            
+            // Actualizar tipos de limpieza del componente
+            if (elementoConfig.seco && !componente.tiposLimpieza.includes('SECO')) {
+              componente.tiposLimpieza.push('SECO');
+            }
+            if (elementoConfig.humedo && !componente.tiposLimpieza.includes('HUMEDO')) {
+              componente.tiposLimpieza.push('HUMEDO');
+            }
+            if (elementoConfig.desinfeccion && !componente.tiposLimpieza.includes('DESINFECCION')) {
+              componente.tiposLimpieza.push('DESINFECCION');
+            }
+            
+            // Actualizar estadísticas de la máquina
+            maquina.estadisticas.total++;
+            switch(estadoElemento) {
+              case 'COMPLETADO':
+                maquina.estadisticas.completados++;
+                break;
+              case 'EN-PROCESO':
+                maquina.estadisticas.enProceso++;
+                break;
+              case 'PENDIENTE':
+                maquina.estadisticas.pendientes++;
+                break;
+              case 'VALIDADO':
+                maquina.estadisticas.validados++;
+                break;
+            }
+          });
+        }
+        
+        // Determinar estado del componente
+        if (componente.elementosValidados === componente.totalElementos && componente.totalElementos > 0) {
+          componente.estado = 'VALIDADO';
+        } else if (componente.elementosCompletados === componente.totalElementos && componente.totalElementos > 0) {
+          componente.estado = 'COMPLETADO';
+        } else if (componente.elementosCompletados > 0) {
+          componente.estado = 'EN-PROCESO';
+        } else {
+          componente.estado = 'PENDIENTE';
+        }
+      });
+    }
+  });
+  
+  // Determinar estado general de cada máquina
+  maquinasMap.forEach(maquina => {
+    if (maquina.estadisticas.validados === maquina.estadisticas.total && maquina.estadisticas.total > 0) {
+      maquina.estadoGeneral = 'VALIDADO';
+    } else if (maquina.estadisticas.completados === maquina.estadisticas.total && maquina.estadisticas.total > 0) {
+      maquina.estadoGeneral = 'COMPLETADO';
+    } else if (maquina.estadisticas.completados > 0 || maquina.estadisticas.enProceso > 0) {
+      maquina.estadoGeneral = 'EN-PROCESO';
+    } else {
+      maquina.estadoGeneral = 'PENDIENTE';
+    }
+  });
+  
+  return Array.from(maquinasMap.values()).sort((a, b) => a.maquinaNombre.localeCompare(b.maquinaNombre));
+}
+
+// Función para calcular próxima limpieza de un elemento
+function calcularProximaLimpiezaElemento(registrosElemento, frecuencia) {
+  if (!registrosElemento || registrosElemento.length === 0) {
+    return {
+      diasFaltantes: 0,
+      proximaFecha: 'Inmediatamente',
+      estado: 'urgente',
+      texto: 'No se ha limpiado nunca'
+    };
+  }
+  
+  // Encontrar la última fecha de limpieza completada
+  const limpiezasCompletadas = registrosElemento.filter(r => 
+    r.estado === 'COMPLETADO' || r.estado === 'VALIDADO'
+  );
+  
+  if (limpiezasCompletadas.length === 0) {
+    return {
+      diasFaltantes: 0,
+      proximaFecha: 'Inmediatamente',
+      estado: 'urgente',
+      texto: 'Pendiente de limpieza'
+    };
+  }
+  
+  // Ordenar por fecha más reciente
+  limpiezasCompletadas.sort((a, b) => {
+    const fechaA = a.fechaRealizacion ? new Date(a.fechaRealizacion) : new Date(0);
+    const fechaB = b.fechaRealizacion ? new Date(b.fechaRealizacion) : new Date(0);
+    return fechaB - fechaA;
+  });
+  
+  // Usar una función segura para obtener la fecha sin problemas de zona horaria
+  const ultimaLimpieza = obtenerFechaSinZonaHoraria(limpiezasCompletadas[0].fechaRealizacion);
+  
+  // Calcular días según frecuencia
+  let diasFrecuencia;
+  switch(frecuencia.toLowerCase()) {
+    case 'mensual':
+      diasFrecuencia = 30;
+      break;
+    case 'trimestral':
+      diasFrecuencia = 90;
+      break;
+    case 'semestral':
+      diasFrecuencia = 180;
+      break;
+    case 'anual':
+      diasFrecuencia = 365;
+      break;
+    case 'diario':
+      diasFrecuencia = 1;
+      break;
+    case 'semanal':
+      diasFrecuencia = 7;
+      break;
+    default:
+      diasFrecuencia = 30; // Por defecto mensual
+  }
+  
+  // Calcular próxima fecha (sumar días sin problemas de zona horaria)
+  const proximaFecha = new Date(ultimaLimpieza);
+  proximaFecha.setDate(proximaFecha.getDate() + diasFrecuencia);
+  
+  // Obtener fecha de hoy sin hora (medianoche UTC)
+  const hoy = obtenerHoySinHora();
+  
+  // Calcular días faltantes correctamente
+  const diasFaltantes = Math.ceil((proximaFecha - hoy) / (1000 * 60 * 60 * 24));
+  
+  let estado = 'normal';
+  let texto = '';
+  
+  if (diasFaltantes <= 0) {
+    estado = 'vencido';
+    texto = `¡Vencido hace ${Math.abs(diasFaltantes)} días!`;
+  } else if (diasFaltantes <= 7) {
+    estado = 'proximo';
+    texto = `En ${diasFaltantes} días`;
+  } else {
+    estado = 'normal';
+    texto = `En ${diasFaltantes} días`;
+  }
+  
+  // Formatear fecha de próxima limpieza (sin problemas de zona horaria)
+  const proximaFechaFormateada = formatearFechaLocal(proximaFecha);
+  
+  return {
+    diasFaltantes: diasFaltantes,
+    proximaFecha: proximaFechaFormateada,
+    estado: estado,
+    texto: texto
+  };
+}
+
+// Función auxiliar para obtener fecha sin problemas de zona horaria
+function obtenerFechaSinZonaHoraria(fechaString) {
+  if (!fechaString) return new Date();
+  
+  // Si la fecha ya es un objeto Date, devolver copia
+  if (fechaString instanceof Date) {
+    return new Date(fechaString.getTime());
+  }
+  
+  // Si es string, parsear correctamente
+  const fecha = new Date(fechaString);
+  
+  // Crear nueva fecha ajustando la zona horaria
+  const fechaAjustada = new Date(
+    fecha.getUTCFullYear(),
+    fecha.getUTCMonth(),
+    fecha.getUTCDate(),
+    12, 0, 0 // Poner a mediodía para evitar problemas de zona horaria
+  );
+  
+  return fechaAjustada;
+}
+
+// Función para obtener la fecha de hoy sin hora (medianoche local)
+function obtenerHoySinHora() {
+  const hoy = new Date();
+  // Establecer a medianoche en hora local
+  return new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+}
+
+// Función para formatear fecha en formato local sin problemas
+function formatearFechaLocal(fecha) {
+  if (!fecha) return '';
+  
+  // Asegurarse de que es un objeto Date
+  const fechaObj = fecha instanceof Date ? fecha : new Date(fecha);
+  
+  // Formatear en español
+  return fechaObj.toLocaleDateString('es-ES', {
+    day: '2-digit',
+    month: '2-digit', 
+    year: 'numeric',
+    timeZone: 'UTC' // Usar UTC para evitar desplazamientos
+  });
+}
+
+// Función para obtener todos los registros de limpieza
+function obtenerTodosRegistrosLimpieza() {
+  return new Promise((resolve) => {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (result && result.success) {
+          resolve(result.registros || []);
+        } else {
+          resolve([]);
+        }
+      })
+      .withFailureHandler(function() {
+        resolve([]);
+      })
+      .obtenerTodosRegistrosLimpieza(); // ¡CAMBIA AQUÍ!
+  });
+}
+
+// Función para calcular estado de un elemento
+function calcularEstadoElemento(registros) {
+  if (!registros || registros.length === 0) {
+    return 'PENDIENTE';
+  }
+  
+  const todosCompletados = registros.every(r => r.estado === 'COMPLETADO');
+  const algunoValidado = registros.some(r => r.validadoPor && r.validadoPor !== '');
+  const algunoCompletado = registros.some(r => r.estado === 'COMPLETADO');
+  
+  if (algunoValidado) {
+    return 'VALIDADO';
+  } else if (todosCompletados) {
+    return 'COMPLETADO';
+  } else if (algunoCompletado) {
+    return 'EN-PROCESO';
+  } else {
+    return 'PENDIENTE';
+  }
+}
+
+// Función para obtener icono según estado
+function obtenerIconoEstado(estado) {
+  switch(estado) {
+    case 'VALIDADO': return '<i class="fa-jelly fa-regular fa-thumbs-up"></i>';
+    case 'COMPLETADO': return '<i class="fas fa-check-circle"></i>';
+    case 'EN-PROCESO': return '<i class="fas fa-spinner"></i>';
+    case 'PENDIENTE': return '<i class="fas fa-clock"></i>';
+    default: return '<i class="fas fa-question-circle"></i>';
+  }
+}
+
+function formatFechaSimple(fechaString) {
+  if (!fechaString) return '';
+  
+  try {
+    // Usar la función segura para evitar problemas de zona horaria
+    const fecha = obtenerFechaSinZonaHoraria(fechaString);
+    
+    // Formatear sin problemas
+    return fecha.toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      timeZone: 'UTC'
+    });
+  } catch (e) {
+    console.warn('⚠️ Error formateando fecha:', fechaString, e);
+    // Intentar formato simple
+    try {
+      const partes = fechaString.split('-');
+      if (partes.length === 3) {
+        return `${partes[2]}/${partes[1]}/${partes[0]}`;
+      }
+      return fechaString;
+    } catch {
+      return fechaString;
+    }
+  }
+}
+
+function calcularTotalComponentes(maquinas) {
+  return maquinas.reduce((sum, m) => sum + m.componentes.length, 0);
+}
+
+function calcularTotalElementos(maquinas) {
+  return maquinas.reduce((sum, m) => sum + m.estadisticas.total, 0);
+}
+
+// ==================== EN PROCESO ====================
+function loadProceso() {
+  showLoading();
+  
+  // Para GEN, obtener todos los registros
+  if (currentUser.proceso === 'GENERAL') {
+    google.script.run
+      .withSuccessHandler(onProcesoLoaded)
+      .withFailureHandler(function(error) {
+        hideLoading();
+        console.error('Error cargando proceso:', error);
+        renderProceso([]);
+      })
+      .obtenerTodosRegistrosLimpieza(); // ¡NUEVA FUNCIÓN!
+  } else {
+    google.script.run
+      .withSuccessHandler(onProcesoLoaded)
+      .withFailureHandler(function(error) {
+        hideLoading();
+        console.error('Error cargando proceso:', error);
+        renderProceso([]);
+      })
+      .obtenerRegistrosLimpiezaPorProceso(currentUser.proceso, null, null);
+  }
+}
+
+function onProcesoLoaded(result) {
+  hideLoading();
+  
+  if (result && result.success) {
+    renderProceso(result.registros || []);
+  } else {
+    renderProceso([]);
+  }
+}
+
+function renderProceso(registros) {
+  const container = document.getElementById('proceso-content');
+  container.innerHTML = '';
+  
+  if (!registros || registros.length === 0) {
+    container.innerHTML = '<p class="config-placeholder">No hay limpiezas en proceso</p>';
+    return;
+  }
+  
+  const grouped = {};
+  registros.forEach(reg => {
+    if (!grouped[reg.maquinaId]) {
+      grouped[reg.maquinaId] = {
+        nombre: reg.maquinaNombre,
+        registros: []
+      };
+    }
+    grouped[reg.maquinaId].registros.push(reg);
+  });
+  
+  Object.keys(grouped).forEach(maquinaId => {
+    const maquina = grouped[maquinaId];
+    const card = document.createElement('div');
+    card.className = 'proceso-card';
+    
+    const elementosHtml = maquina.registros.slice(0, 5).map(reg => `
+      <div class="proceso-elemento">
+        <span>${reg.elementoNombre} - ${reg.tipoLimpieza}</span>
+        <span class="estado-badge ${reg.estado === 'COMPLETADO' ? 'estado-completado' : 'estado-pendiente'}">
+          ${reg.estado}
+        </span>
+      </div>
+    `).join('');
+    
+    card.innerHTML = `
+      <div class="proceso-card-title">${maquina.nombre}</div>
+      <div class="proceso-card-elementos">${elementosHtml}</div>
+    `;
+    
+    container.appendChild(card);
+  });
+}
+
+// ==================== ELEMENTO DETAIL ====================
+function selectElemento(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre) {
+  currentMaquinaId = maquinaId;
+  currentElementoId = elementoId;
+  currentMaquinaNombre = maquinaNombre;
+  currentElementoNombre = elementoNombre;
+  
+  console.log('🎯 Elemento seleccionado:', {
+    maquinaId: maquinaId,
+    elementoId: elementoId,
+    maquinaNombre: maquinaNombre,
+    elementoNombre: elementoNombre
+  });
+  
+  document.getElementById('elemento-title').textContent = maquinaNombre + ' - ' + componenteNombre + ' - ' + elementoNombre;
+  
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+  document.getElementById('content-elemento').classList.remove('hidden');
+  
+  document.querySelectorAll('.elemento-item').forEach(item => item.classList.remove('active'));
+  if (event && event.target) event.target.classList.add('active');
+  
+  // Ejecutar debug
+  debugElementoSeleccionado();
+  
+  loadElementoTiposLimpieza();
+}
+
+function loadElementoTiposLimpieza() {
+  console.log('🔄 Cargando tipos de limpieza para:', {
+    maquinaId: currentMaquinaId,
+    elementoId: currentElementoId
+  });
+  
+  showLoading();
+  
+  google.script.run
+    .withSuccessHandler(onTiposLimpiezaLoaded)
+    .withFailureHandler(function(error) {
+      hideLoading();
+      console.error('❌ Error cargando tipos de limpieza:', error);
+      showNoRegistrosMessage();
+    })
+    .obtenerRegistrosLimpieza(currentMaquinaId, currentElementoId);
+}
+
+function onTiposLimpiezaLoaded(result) {
+  hideLoading();
+  console.log('📥 Respuesta tipos limpieza:', result);
+  
+  if (!result) {
+    console.error('❌ Error: Respuesta nula de tipos limpieza');
+    showNoRegistrosMessage();
+    return;
+  }
+  
+  if (result.success) {
+    currentElementoTiposLimpieza = result.registros || [];
+    console.log('✅ Tipos de limpieza cargados:', currentElementoTiposLimpieza.length);
+    
+    if (currentElementoTiposLimpieza.length === 0) {
+      showNoRegistrosMessage();
+    } else {
+      renderLimpiezaSections();
+      // SOLO llamar verificarEstadoValidacion si estamos en la vista correcta
+      if (document.getElementById('content-elemento') && 
+          !document.getElementById('content-elemento').classList.contains('hidden')) {
+        verificarEstadoValidacion();
+      }
+    }
+  } else {
+    console.error('❌ Error en tipos limpieza:', result.message);
+    showNoRegistrosMessage();
+  }
+}
+
+function showNoRegistrosMessage() {
+  const container = document.getElementById('limpieza-sections');
+  container.innerHTML = `
+    <div class="empty-state">
+      <p class="config-placeholder">No hay tipos de limpieza configurados para este elemento</p>
+      <p class="empty-state-hint">Este elemento no tiene registros de limpieza pendientes. Verifique:</p>
+      <ul style="text-align: left;margin: 1rem 0;font-size: 14.4px;color: var(--text-muted);">
+        <li>Que el elemento esté incluido en una planeación activa</li>
+        <li>Que la planeación tenga tipos de limpieza configurados</li>
+        <li>Que los registros se hayan creado correctamente</li>
+      </ul>
+      <button onclick="loadElementoTiposLimpieza()" class="btn-principal">Reintentar</button>
+    </div>
+  `;
+  document.getElementById('btn-finalizar').classList.add('hidden');
+}
+
+function renderLimpiezaSections() {
+  const container = document.getElementById('limpieza-sections');
+  
+  if (!container) {
+    console.error('❌ Contenedor limpieza-sections no encontrado');
+    return;
+  }
+  
+  console.log('🎨 Renderizando secciones de limpieza:', currentElementoTiposLimpieza);
+  console.log('👤 Usuario actual:', currentUser);
+  
+  if (!currentElementoTiposLimpieza || currentElementoTiposLimpieza.length === 0) {
+    showNoRegistrosMessage();
+    return;
+  }
+  
+  // Verificar si está validada
+  const primeraLimpieza = currentElementoTiposLimpieza[0];
+  const estaValidada = primeraLimpieza.validadoPor && primeraLimpieza.validadoPor !== '';
+  
+  let html = '';
+  
+  // Mostrar información de validación si existe
+  if (estaValidada) {
+    html += `
+      <div class="validacion-info" style="
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        border-radius: var(--border-radius);
+        padding: 16px;
+        margin-bottom: 24px;
+        text-align: center;
+      ">
+        <div style="font-weight: 600; color: #166534; margin-bottom: 8px;">
+          ✅ LIMPIEZA VALIDADA
+        </div>
+        <div style="font-size: 13px; color: #065F46;">
+          Validado por: <strong>${primeraLimpieza.validadoPor}</strong><br>
+          Fecha: ${primeraLimpieza.fechaValidacion || 'No especificada'}
+        </div>
+      </div>
+    `;
+  }
+  
+  // Agrupar por tipo de limpieza
+  const tiposMap = {};
+  currentElementoTiposLimpieza.forEach(reg => {
+    if (!tiposMap[reg.tipoLimpieza]) {
+      tiposMap[reg.tipoLimpieza] = reg;
+    }
+  });
+  
+  const tiposOrden = ['SECO', 'HUMEDO', 'DESINFECCION'];
+  const tiposNombres = {
+    'SECO': 'Limpieza Seco',
+    'HUMEDO': 'Limpieza Húmedo',
+    'DESINFECCION': 'Desinfección'
+  };
+  
+  tiposOrden.forEach(tipo => {
+    if (tiposMap[tipo]) {
+      const reg = tiposMap[tipo];
+      const isCompleted = reg.estado === 'COMPLETADO';
+      const estaValidada = reg.validadoPor && reg.validadoPor !== '';
+      
+      // Determinar el valor del responsable
+      // Si ya hay un responsable guardado, usarlo, sino usar el nombre del usuario actual
+      const responsableValue = reg.responsable && reg.responsable !== '' ? 
+        reg.responsable : 
+        (currentUser ? currentUser.nombre : '');
+      
+      html += `
+        <div class="limpieza-section">
+          <div class="section-header">
+            <span class="section-name">${tiposNombres[tipo]}</span>
+            <input type="checkbox" class="section-checkbox" id="check-${tipo}" 
+              ${isCompleted ? 'checked' : ''} 
+              ${estaValidada ? 'disabled' : ''}
+              onchange="handleLimpiezaCheckbox('${reg.id}', '${tipo}', this.checked)">
+            <div class="section-line"></div>
+          </div>
+          <div class="section-form ${isCompleted || estaValidada ? 'disabled' : ''}" id="form-${tipo}">
+            <div class="form-group">
+              <label class="form-label">Nombre del Responsable</label>
+              <input type="text" class="input-field" id="responsable-${tipo}" 
+                placeholder="Nombre..." value="${responsableValue}" 
+                ${isCompleted || estaValidada ? 'disabled' : ''}
+                ${!isCompleted && !estaValidada ? 'readonly' : ''} <!-- Hacer solo lectura si no completado -->
+                <style="${!isCompleted && !estaValidada ? 'background-color: #f3f4f6;' : ''}">
+              ${!isCompleted && !estaValidada ? '<small class="form-hint">El nombre se asigna automáticamente</small>' : ''}
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fecha en que se realizó</label>
+              <input type="date" class="input-field" id="fecha-${tipo}" 
+                value="${reg.fechaRealizacion || ''}" 
+                ${isCompleted || estaValidada ? 'disabled' : ''}>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Observaciones</label>
+              <textarea class="textarea-field" id="observaciones-${tipo}" 
+                placeholder="Observaciones..." 
+                ${isCompleted || estaValidada ? 'disabled' : ''}>${reg.observaciones || ''}</textarea>
+            </div>
+            ${estaValidada ? `
+              <div class="validacion-detalle" style="
+                background: rgba(34, 197, 94, 0.05);
+                border: 1px solid rgba(34, 197, 94, 0.2);
+                border-radius: 6px;
+                padding: 12px;
+                margin-top: 12px;
+                font-size: 12px;
+                color: #065F46;
+              ">
+                <strong>Validado por:</strong> ${reg.validadoPor}<br>
+                <strong>Fecha validación:</strong> ${reg.fechaValidacion || 'No especificada'}
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+  });
+  
+  container.innerHTML = html;
+  console.log('✅ Secciones de limpieza renderizadas correctamente');
+  console.log('📝 Nombre del usuario cargado automáticamente:', currentUser ? currentUser.nombre : 'No hay usuario');
+}
+
+function handleLimpiezaCheckbox(registroId, tipo, isChecked) {
+  if (isChecked) {
+    pendingCheckboxData = {
+      registroId: registroId,
+      tipo: tipo
+    };
+    
+    document.getElementById('modal-message').textContent = 
+      `¿Está seguro que desea marcar la limpieza "${tipo}" como completada? Esta acción no se puede deshacer.`;
+    document.getElementById('confirm-modal').classList.remove('hidden');
+  }
+}
+
+function confirmarModal() {
+  // Si hay finalización completa pendiente
+  if (window.pendingFinalizarCompleto) {
+    confirmarFinalizarCompleto();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay reporte de máquina pendiente
+  if (window.pendingReporteMaquina) {
+    ejecutarGenerarReporteMaquina();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay validación pendiente
+  if (pendingValidation) {
+    confirmarValidacion();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay checkbox de limpieza pendiente
+  if (pendingCheckboxData) {
+    confirmarLimpieza();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay eliminación de máquina pendiente
+  if (window.pendingMaquinaDelete) {
+    ejecutarEliminacionMaquina();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay validación de máquina pendiente
+  if (window.pendingMaquinaValidation) {
+    ejecutarValidacionMaquina();
+    cerrarModal();
+    return;
+  }
+}
+
+function cerrarModal() {
+  document.getElementById('confirm-modal').classList.add('hidden');
+  
+  // Restablecer el modal
+  const modalTitle = document.querySelector('.modal-title');
+  if (modalTitle) {
+    modalTitle.textContent = 'Confirmar Validación';
+  }
+  
+  const confirmBtn = document.querySelector('.btn-confirm');
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.style.opacity = '1';
+    confirmBtn.style.cursor = 'pointer';
+    confirmBtn.textContent = 'Confirmar';
+    confirmBtn.style.backgroundColor = '';
+    confirmBtn.style.borderColor = '';
+  }
+  
+  const cancelBtn = document.querySelector('.btn-cancel');
+  if (cancelBtn) {
+    cancelBtn.textContent = 'Cancelar';
+  }
+  
+  // Limpiar todos los estados pendientes
+  if (pendingCheckboxData) {
+    const checkbox = document.getElementById('check-' + pendingCheckboxData.tipo);
+    if (checkbox) checkbox.checked = false;
+    pendingCheckboxData = null;
+  }
+  
+  if (window.pendingMaquinaDelete) {
+    window.pendingMaquinaDelete = null;
+  }
+  
+  if (window.pendingMaquinaValidation) {
+    window.pendingMaquinaValidation = null;
+  }
+  
+  if (window.pendingReporteMaquina) {
+    window.pendingReporteMaquina = null;
+  }
+  
+  if (window.pendingFinalizarCompleto) {
+    window.pendingFinalizarCompleto = null;
+  }
+  
+  if (window.pendingReporte) {
+    window.pendingReporte = null;
+  }
+  
+  pendingValidation = false;
+  
+  // Limpiar campos de confirmación
+  const confirmInput = document.getElementById('confirm-delete-input');
+  if (confirmInput) {
+    confirmInput.value = '';
+  }
+  
+  const errorMsg = document.getElementById('confirm-delete-error');
+  if (errorMsg) {
+    errorMsg.style.display = 'none';
+  }
+}
+
+function confirmarLimpieza() {
+  if (!pendingCheckboxData) {
+    cerrarModal();
+    return;
+  }
+  
+  const tipo = pendingCheckboxData.tipo;
+  const registroId = pendingCheckboxData.registroId;
+  
+  // Obtener valores del formulario
+  const responsableInput = document.getElementById('responsable-' + tipo);
+  const fechaInput = document.getElementById('fecha-' + tipo);
+  const observacionesInput = document.getElementById('observaciones-' + tipo);
+  
+  // El responsable ahora es automático, pero verificar que esté presente
+  const responsable = currentUser ? currentUser.nombre : 
+                    (responsableInput ? responsableInput.value : '');
+  const fecha = fechaInput ? fechaInput.value : '';
+  const observaciones = observacionesInput ? observacionesInput.value : '';
+  
+  // Validaciones
+  if (!responsable || responsable.trim() === '') {
+    showAlert("error", "¡Error!", "No se pudo obtener el nombre del usuario. Cierre sesión y vuelva a ingresar.");
+    const checkbox = document.getElementById('check-' + tipo);
+    if (checkbox) checkbox.checked = false;
+    cerrarModal();
+    return;
+  }
+  
+  if (!fecha) {
+    showAlert("info", "¡Upss!", "Por favor seleccione la fecha en que realizó la limpieza");
+    const checkbox = document.getElementById('check-' + tipo);
+    if (checkbox) checkbox.checked = false;
+    cerrarModal();
+    return;
+  }
+  
+  // Validar que la fecha no sea futura
+  const fechaSeleccionada = new Date(fecha);
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  
+  if (fechaSeleccionada > hoy) {
+    showAlert("warning", "Fecha inválida", "No puede seleccionar una fecha futura");
+    const checkbox = document.getElementById('check-' + tipo);
+    if (checkbox) checkbox.checked = false;
+    cerrarModal();
+    return;
+  }
+  
+  cerrarModal();
+  showLoading();
+  
+  const datos = {
+    estado: 'COMPLETADO',
+    responsable: responsable.trim(),
+    fechaRealizacion: fecha,
+    observaciones: observaciones.trim()
+  };
+  
+  console.log('📤 Enviando datos de limpieza:', datos);
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Éxito!", "Limpieza registrada correctamente");
+        loadElementoTiposLimpieza();
+        actualizarEstadosSidebar(); 
+      } else {
+        showAlert('error', 'Error', 'Error al registrar: ' + (result ? result.message : 'Error desconocido'));
+        const checkbox = document.getElementById('check-' + tipo);
+        if (checkbox) checkbox.checked = false;
+      }
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error', 'Error de conexión: ' + error.message);
+      const checkbox = document.getElementById('check-' + tipo);
+      if (checkbox) checkbox.checked = false;
+    })
+    .actualizarRegistroLimpiezaCompleto(registroId, datos);
+  
+  pendingCheckboxData = null;
+}
+
+// Enter key para login
+document.addEventListener('DOMContentLoaded', function() {
+  const cedulaInput = document.getElementById('cedula-input');
+  if (cedulaInput) {
+    cedulaInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        handleLogin();
+      }
+    });
+  }
+  
+  // Test: Verificar que handleLogin existe
+  console.log('✅ handleLogin definido:', typeof handleLogin);
+});
+
+function debugElementoSeleccionado() {
+  console.log('🔍 DEBUG Elemento Seleccionado:');
+  console.log('Maquina ID:', currentMaquinaId, 'Tipo:', typeof currentMaquinaId);
+  console.log('Elemento ID:', currentElementoId, 'Tipo:', typeof currentElementoId);
+  console.log('Maquina Nombre:', currentMaquinaNombre);
+  console.log('Elemento Nombre:', currentElementoNombre);
+  
+  // Primero probar con la función de debug específica
+  google.script.run
+    .withSuccessHandler(function(result) {
+      console.log('🐛 DEBUG ESPECÍFICO Resultado:', result);
+    })
+    .debugRegistrosElemento(currentMaquinaId, currentElementoId);
+  
+  // Luego con la función normal - CAMBIADO TAMBIÉN
+  google.script.run
+    .withSuccessHandler(function(result) {
+      console.log('📊 Registros encontrados (función normal):', result);
+      if (result && result.success) {
+        console.log('Total registros:', result.registros.length);
+        result.registros.forEach(reg => {
+          console.log('Registro:', reg);
+        });
+      } else {
+        console.log('Error:', result ? result.message : 'Resultado nulo');
+      }
+    })
+    .obtenerRegistrosLimpieza(currentMaquinaId, currentElementoId); // ← CAMBIADO AQUÍ
+}
+
+function ejecutarDiagnostico() {
+  console.log('🛠️ Ejecutando diagnóstico...');
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      console.log('📋 Resultado diagnóstico:', result);
+      if (result.success) {
+        showAlert("success", "Diagnóstico completado", `Revisa la consola para detalles.\nTotal registros: ${result.diagnostico.totalRegistros}`);
+} else {
+  showAlert('error', 'Error en diagnóstico', result.message);
+}
+    })
+    .diagnosticarRegistros();
+}
+
+function verificarEstadoValidacion() {
+  const btnValidarJefe = document.getElementById('btn-validar-jefe');
+  const btnFinalizar = document.getElementById('btn-finalizar');
+  
+  // VERIFICAR SI LOS ELEMENTOS EXISTEN
+  if (!btnValidarJefe || !btnFinalizar) {
+    console.log('⚠️ Elementos de validación no encontrados. Puede no estar en la vista de elemento.');
+    return; // Salir si no existen los elementos
+  }
+  
+  // Ocultar ambos botones inicialmente
+  btnValidarJefe.classList.add('hidden');
+  btnFinalizar.classList.add('hidden');
+  
+  // Verificar si el usuario es jefe
+  if (currentUser && currentUser.rol === 'jefe') {
+    console.log('👑 Usuario es jefe, verificando estado de limpieza...');
+    
+    // Verificar si todas las limpiezas están completadas pero no validadas
+    const todasCompletadas = currentElementoTiposLimpieza.every(r => r.estado === 'COMPLETADO');
+    const yaValidada = currentElementoTiposLimpieza.some(r => r.validadoPor && r.validadoPor !== '');
+    
+    console.log('📊 Estado limpieza - Todas completadas:', todasCompletadas, 'Ya validada:', yaValidada);
+    
+    if (todasCompletadas && !yaValidada) {
+      // Mostrar botón de validación para jefes
+      btnValidarJefe.classList.remove('hidden');
+      console.log('✅ Mostrando botón de validación para jefe');
+    }
+  } else {
+    console.log('👤 Usuario no es jefe, rol:', currentUser ? currentUser.rol : 'No definido');
+  }
+  
+  // Mostrar botón de finalizar normal para todos los usuarios
+  // cuando hay limpiezas pendientes
+  const pendientes = currentElementoTiposLimpieza.filter(r => r.estado !== 'COMPLETADO');
+  if (pendientes.length > 0) {
+    btnFinalizar.classList.remove('hidden');
+  }
+}
+
+function validarLimpiezaCompleta() {
+  if (!currentUser || currentUser.rol !== 'jefe') {
+    showAlert('error', 'Permiso denegado', 'Solo los jefes pueden validar limpiezas completadas');
+    return;
+  }
+  
+  // Verificar que todas las limpiezas estén completadas
+  const pendientes = currentElementoTiposLimpieza.filter(r => r.estado !== 'COMPLETADO');
+  if (pendientes.length > 0) {
+    showAlert('error', 'No se puede validar', `Aún hay ${pendientes.length} limpieza(s) pendiente(s).`);
+    return;
+  }
+  
+  // Verificar que no esté ya validada
+  const yaValidada = currentElementoTiposLimpieza.some(r => r.validadoPor && r.validadoPor !== '');
+  if (yaValidada) {
+    showAlert("info", "Ya validado", `Esta limpieza ya fue validada por: ${currentElementoTiposLimpieza[0].validadoPor}`);
+    return;
+  }
+  
+  // Mostrar modal de confirmación
+  document.getElementById('modal-message').textContent = 
+    `¿Está seguro que desea validar esta limpieza completa?\n\n` +
+    `Elemento: ${currentElementoNombre}\n` +
+    `Máquina: ${currentMaquinaNombre}\n\n` +
+    `Esta acción registrará su nombre como validador y no se puede deshacer.`;
+  
+  document.getElementById('confirm-modal').classList.remove('hidden');
+  
+  // Configurar el callback para la validación
+  pendingValidation = true;
+}
+
+// Función específica para confirmar validación
+function confirmarValidacion() {
+  if (!pendingValidation) return;
+  
+  cerrarModal();
+  showLoading();
+  
+  console.log('✅ Validando limpieza completa...', {
+    maquinaId: currentMaquinaId,
+    elementoId: currentElementoId,
+    validador: currentUser.nombre
+  });
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Validación exitosa!", `Limpieza validada correctamente por ${currentUser.nombre}`);
+        loadElementoTiposLimpieza();
+        actualizarEstadosSidebar(); // Actualizar estados
+      } else {
+        showAlert('error', 'Error al validar', result ? result.message : 'Error desconocido');
+      }
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error de conexión', error.message);
+    })
+    .validarLimpiezaCompleta(currentMaquinaId, currentElementoId, currentUser.nombre);
+  
+  pendingValidation = false;
+}
+
+    function showAlert(type, title, message, duration = 5000) {
+        // Create alert container if it doesn't exist
+        let alertContainer = document.getElementById('alertContainer');
+        if (!alertContainer) {
+            alertContainer = document.createElement('div');
+            alertContainer.id = 'alertContainer';
+            alertContainer.className = 'alert-container';
+            document.body.appendChild(alertContainer);
+        }
+
+        // Create alert element
+        const alert = document.createElement('div');
+        alert.className = `alert ${type}`;
+        
+        const iconSymbols = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'i'
+        };
+
+        alert.innerHTML = `
+            <div class="alert-icon">${iconSymbols[type] || 'i'}</div>
+            <div class="alert-content">
+                <div class="alert-title">${title}</div>
+                <div class="alert-message">${message}</div>
+            </div>
+            <button class="alert-close" onclick="closeAlert(this)">&times;</button>
+            <div class="alert-progress"></div>
+        `;
+
+        alertContainer.appendChild(alert);
+
+        // Show alert with animation
+        setTimeout(() => {
+            alert.classList.add('show');
+        }, 100);
+
+        // Auto remove alert
+        setTimeout(() => {
+            closeAlert(alert.querySelector('.alert-close'));
+        }, duration);
+    }
+
+    function closeAlert(closeBtn) {
+        const alert = closeBtn.closest('.alert');
+        alert.classList.remove('show');
+        setTimeout(() => {
+            if (alert.parentNode) {
+                alert.parentNode.removeChild(alert);
+            }
+        }, 400);
+    }
+  
+  // ==================== FUNCIONES DE ESTADOS ====================
+
+// Cache para estados de elementos
+let estadosElementosCache = {};
+
+// Función para cargar todos los estados de elementos
+function cargarEstadosElementos() {
+  return new Promise((resolve) => {
+    console.log('🔄 Cargando estados de elementos...');
+    
+    // Reset cache
+    estadosElementosCache = {};
+    
+    // Obtener todos los registros de limpieza
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (result && result.success) {
+          const registros = result.registros || [];
+          
+          // Agrupar registros por elemento
+          const registrosPorElemento = {};
+          registros.forEach(registro => {
+            const elementoId = registro.elementoId;
+            if (!registrosPorElemento[elementoId]) {
+              registrosPorElemento[elementoId] = [];
+            }
+            registrosPorElemento[elementoId].push(registro);
+          });
+          
+          // Determinar estado de cada elemento
+          Object.keys(registrosPorElemento).forEach(elementoId => {
+            const registrosElemento = registrosPorElemento[elementoId];
+            estadosElementosCache[elementoId] = determinarEstadoPorRegistros(registrosElemento);
+          });
+          
+          console.log('✅ Estados cargados para', Object.keys(estadosElementosCache).length, 'elementos');
+          resolve();
+        } else {
+          console.log('⚠️ No se pudieron cargar estados');
+          resolve();
+        }
+      })
+      .withFailureHandler(function(error) {
+        console.error('❌ Error cargando estados:', error);
+        resolve();
+      })
+      .obtenerRegistrosLimpiezaPorProceso(null, null);
+  });
+}
+
+// Función para determinar estado de un elemento basado en sus registros
+function determinarEstadoPorRegistros(registros) {
+  if (!registros || registros.length === 0) {
+    return 'no-planeado'; // ROJO - No tiene registros
+  }
+  
+  const totalRegistros = registros.length;
+  const completados = registros.filter(r => r.estado === 'COMPLETADO').length;
+  const validados = registros.filter(r => r.validadoPor && r.validadoPor !== '').length;
+  
+  if (validados > 0) {
+    return 'terminado'; // AZUL - Validado por jefe
+  } else if (completados === totalRegistros) {
+    return 'en-proceso'; // VERDE - Todos completados pero no validados
+  } else if (completados > 0) {
+    return 'empezado'; // AMARILLO - Algunos completados
+  } else {
+    return 'no-planeado'; // ROJO - Planeado pero no empezado
+  }
+}
+
+// Función para obtener estado de un elemento específico
+function determinarEstadoElemento(elementoId) {
+  if (estadosElementosCache[elementoId]) {
+    return estadosElementosCache[elementoId];
+  }
+  return 'no-planeado'; // Por defecto
+}
+
+// Función para determinar estado de un componente
+function determinarEstadoComponente(maquinaId, componenteId) {
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  if (!maquina || !maquina.componentes) return 'no-planeado';
+  
+  const componente = maquina.componentes.find(c => c.id.toString() === componenteId.toString());
+  if (!componente || !componente.elementos) return 'no-planeado';
+  
+  const estadosElementos = componente.elementos.map(elem => 
+    determinarEstadoElemento(elem.id)
+  );
+  
+  // Si todos los elementos están terminados
+  if (estadosElementos.every(estado => estado === 'terminado')) {
+    return 'terminado';
+  }
+  
+  // Si todos están en proceso
+  if (estadosElementos.every(estado => estado === 'en-proceso')) {
+    return 'en-proceso';
+  }
+  
+  // Si hay al menos uno empezado
+  if (estadosElementos.some(estado => estado === 'empezado' || estado === 'en-proceso' || estado === 'terminado')) {
+    return 'empezado';
+  }
+  
+  return 'no-planeado';
+}
+
+// Función para determinar estado de una máquina
+function determinarEstadoMaquina(maquinaId) {
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  if (!maquina || !maquina.componentes) return 'no-planeado';
+  
+  const estadosComponentes = maquina.componentes.map(componente => 
+    determinarEstadoComponente(maquinaId, componente.id)
+  );
+  
+  // Si todos los componentes están terminados
+  if (estadosComponentes.every(estado => estado === 'terminado')) {
+    return 'terminado';
+  }
+  
+  // Si todos están en proceso
+  if (estadosComponentes.every(estado => estado === 'en-proceso')) {
+    return 'en-proceso';
+  }
+  
+  // Si hay al menos uno empezado
+  if (estadosComponentes.some(estado => estado === 'empezado' || estado === 'en-proceso' || estado === 'terminado')) {
+    return 'empezado';
+  }
+  
+  return 'no-planeado';
+}
+
+// Función para actualizar estados después de cambios
+function actualizarEstadosSidebar() {
+  console.log('🔄 Actualizando estados del sidebar...');
+  cargarEstadosElementos().then(() => {
+    renderSidebarMaquinas();
+  });
+}
+
+function refrescarEstados() {
+  showAlert("info", "Actualizando", "Refrescando estados de elementos...");
+  actualizarEstadosSidebar();
+}
+
+function actualizarIndicadorProceso() {
+  const container = document.getElementById('proceso-indicator');
+  if (!container) return;
+  
+  const procesos = {
+    'PASTIFICIO': { nombre: 'Pastificio', color: '#ef4444' },
+    'EMPAQUE': { nombre: 'Empaque', color: '#10b981' },
+    'MANTENIMIENTO': { nombre: 'Mantenimiento', color: '#f59e0b' },
+    'CALIDAD': { nombre: 'Calidad', color: '#8b5cf6' },
+    'GENERAL': { nombre: 'General', color: '#6b7280' }
+  };
+  
+  const proceso = currentUser.proceso || 'GENERAL';
+  const info = procesos[proceso] || { nombre: proceso, color: '#6b7280' };
+  
+  container.innerHTML = `
+    <span>Proceso: </span>
+    <span class="proceso-badge" style="background: ${info.color}">
+      ${info.nombre}
+    </span>
+  `;
+}
+
+// ==================== ELIMINAR PLANEACIÓN (CON MODAL) ====================
+function eliminarPlaneacionMaquina(maquinaId, maquinaNombre) {
+  // Guardar los datos en variables globales para usarlos en la confirmación
+  window.pendingMaquinaDelete = {
+    maquinaId: maquinaId,
+    maquinaNombre: maquinaNombre
+  };
+  
+  // Configurar el mensaje del modal
+  const modalMessage = document.getElementById('modal-message');
+  modalMessage.innerHTML = `
+    <div style="text-align: left;">
+      <strong>¿Está seguro que desea eliminar todas las planeaciones de la máquina?</strong>
+      <br><br>
+      <div style="background: #fef3c7; padding: 12px; border-radius: 6px; border-left: 4px solid #f59e0b; margin: 10px 0;">
+        <div style="font-weight: 600; color: #92400e; margin-bottom: 4px;">
+          <i class="fas fa-exclamation-triangle"></i> MÁQUINA A ELIMINAR:
+        </div>
+        <div style="color: #78350f; font-size: 14px;">
+          <strong>${maquinaNombre}</strong> (ID: ${maquinaId})
+        </div>
+      </div>
+      
+      <div style="font-size: 13px; color: #4b5563; margin: 12px 0;">
+        <p style="margin: 8px 0;"><i class="fas fa-trash"></i> Esta acción eliminará:</p>
+        <ul style="margin: 8px 0; padding-left: 20px;">
+          <li>Todas las planeaciones de esta máquina</li>
+          <li>Todos los registros de limpieza asociados</li>
+          <li>Los elementos configurados en la planeación</li>
+        </ul>
+        <p style="margin: 8px 0; color: #dc2626; font-weight: 600;">
+          <i class="fas fa-exclamation-circle"></i> ¡Esta acción no se puede deshacer!
+        </p>
+      </div>
+      
+      <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
+        Para confirmar, escriba el nombre de la máquina: 
+        <input type="text" id="confirm-delete-input" 
+               placeholder="Escriba '${maquinaNombre}' aquí" 
+               style="width: 100%; padding: 8px; margin-top: 8px; border: 1px solid #d1d5db; border-radius: 4px;"
+               onkeyup="validarConfirmacionEliminacion()">
+        <div id="confirm-delete-error" style="color: #dc2626; font-size: 11px; margin-top: 4px; display: none;">
+          El nombre no coincide
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Cambiar el título del modal
+  const modalTitle = document.querySelector('.modal-title');
+  if (modalTitle) {
+    modalTitle.textContent = 'Confirmar Eliminación';
+  }
+  
+  // Configurar los botones del modal
+  const confirmBtn = document.querySelector('.btn-confirm');
+  const cancelBtn = document.querySelector('.btn-cancel');
+  
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.style.opacity = '0.5';
+    confirmBtn.style.cursor = 'not-allowed';
+    confirmBtn.textContent = 'Eliminar';
+    
+    // Cambiar color para eliminar (rojo)
+    confirmBtn.style.backgroundColor = '#dc2626';
+    confirmBtn.style.borderColor = '#dc2626';
+  }
+  
+  if (cancelBtn) {
+    cancelBtn.textContent = 'Cancelar';
+  }
+  
+  // Mostrar el modal
+  document.getElementById('confirm-modal').classList.remove('hidden');
+}
+
+// Función para ejecutar la eliminación después de la confirmación
+function ejecutarEliminacionMaquina() {
+  if (!window.pendingMaquinaDelete) {
+    cerrarModal();
+    return;
+  }
+  
+  const { maquinaId, maquinaNombre } = window.pendingMaquinaDelete;
+  
+  cerrarModal();
+  showLoading();
+  
+  console.log('🗑️ Eliminando planeaciones de máquina:', { maquinaId, maquinaNombre });
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Eliminado!", result.message);
+        loadPlaneaciones(); // Recargar el consolidado
+        actualizarEstadosSidebar(); // Actualizar sidebar
+        
+        // Limpiar cache de estados
+        estadosElementosCache = {};
+      } else {
+        showAlert('error', 'Error al eliminar', result ? result.message : 'Error desconocido');
+      }
+      window.pendingMaquinaDelete = null;
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error de conexión', error.message);
+      window.pendingMaquinaDelete = null;
+    })
+    .eliminarPlaneacionesMaquina(maquinaId);
+}
+
+// Función para validar que el nombre coincida
+function validarConfirmacionEliminacion() {
+  const input = document.getElementById('confirm-delete-input');
+  const confirmBtn = document.querySelector('.btn-confirm');
+  const errorMsg = document.getElementById('confirm-delete-error');
+  
+  if (!input || !confirmBtn || !window.pendingMaquinaDelete) return;
+  
+  const nombreIngresado = input.value.trim();
+  const nombreCorrecto = window.pendingMaquinaDelete.maquinaNombre;
+  
+  if (nombreIngresado === nombreCorrecto) {
+    confirmBtn.disabled = false;
+    confirmBtn.style.opacity = '1';
+    confirmBtn.style.cursor = 'pointer';
+    if (errorMsg) errorMsg.style.display = 'none';
+  } else {
+    confirmBtn.disabled = true;
+    confirmBtn.style.opacity = '0.5';
+    confirmBtn.style.cursor = 'not-allowed';
+    if (errorMsg && nombreIngresado !== '') {
+      errorMsg.style.display = 'block';
+    } else if (errorMsg) {
+      errorMsg.style.display = 'none';
+    }
+  }
+}
+
+// ==================== VALIDACIÓN DESDE CONSOLIDADO ====================
+function validarMaquinaCompleta(maquinaId, maquinaNombre) {
+  // VALIDACIÓN CRÍTICA: Verificar que maquinaId no sea undefined
+  console.log('🔍 Validar máquina llamado con:', { maquinaId, maquinaNombre });
+  
+  if (!maquinaId || maquinaId === 'undefined' || maquinaId.trim() === '') {
+    console.error('❌ ERROR: maquinaId es inválido:', maquinaId);
+    showAlert('error', 'Error', 'ID de máquina inválido. No se puede validar.');
+    return;
+  }
+  
+  if (!currentUser || currentUser.rol !== 'jefe') {
+    showAlert('error', 'Permiso denegado', 'Solo los jefes pueden validar limpiezas completadas');
+    return;
+  }
+  
+  showLoading();
+  
+  console.log('✅ Parámetros válidos, llamando backend con maquinaId:', maquinaId);
+  
+  // Obtener información de la máquina
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      console.log('📥 Respuesta de obtenerInfoValidacionMaquina:', result);
+      
+      if (result && result.success) {
+        console.log('📊 Información de máquina obtenida:', result.datos);
+        mostrarModalValidacionMaquina(maquinaId, maquinaNombre, result.datos);
+      } else {
+        console.error('❌ Error obteniendo info:', result ? result.message : 'Sin respuesta');
+        showAlert('error', 'Error', result ? result.message : 'Error al obtener información');
+      }
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      console.error('❌ Error de conexión:', error);
+      showAlert('error', 'Error de conexión', error.message);
+    })
+    .obtenerInfoValidacionMaquina(maquinaId);
+}
+
+function mostrarModalValidacionMaquina(maquinaId, maquinaNombre, datos) {
+  window.pendingMaquinaValidation = {
+    maquinaId: maquinaId,
+    maquinaNombre: maquinaNombre,
+    datos: datos
+  };
+  
+  const puedeValidar = datos.puedeValidar;
+  const detalles = `
+    <strong>¿Está seguro que desea validar toda la limpieza de esta máquina?</strong>
+    <br><br>
+    <div style="background: ${puedeValidar ? '#f0f9ff' : '#fef3c7'}; padding: 12px; border-radius: 6px; border-left: 4px solid ${puedeValidar ? '#0ea5e9' : '#f59e0b'}; margin: 10px 0;">
+      <div style="font-weight: 600; color: ${puedeValidar ? '#0369a1' : '#92400e'}; margin-bottom: 4px;">
+        <i class="fas fa-industry"></i> MÁQUINA A VALIDAR:
+      </div>
+      <div style="color: ${puedeValidar ? '#0c4a6e' : '#78350f'}; font-size: 14px;">
+        <strong>${maquinaNombre}</strong> (ID: ${maquinaId})
+      </div>
+    </div>
+    
+    <div style="font-size: 13px; color: #4b5563; margin: 12px 0;">
+      <p style="margin: 8px 0; font-weight: 600;">Estado actual de la limpieza:</p>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0;">
+        <div style="background: #dcfce7; padding: 8px; border-radius: 4px;">
+          <div style="font-size: 11px; color: #166534;">Completados</div>
+          <div style="font-weight: 600; color: #166534;">${datos.completados}/${datos.total}</div>
+        </div>
+        <div style="background: #fef3c7; padding: 8px; border-radius: 4px;">
+          <div style="font-size: 11px; color: #92400e;">Pendientes</div>
+          <div style="font-weight: 600; color: #92400e;">${datos.pendientes}</div>
+        </div>
+        ${datos.yaValidados > 0 ? `
+        <div style="background: #dbeafe; padding: 8px; border-radius: 4px;">
+          <div style="font-size: 11px; color: #1e40af;">Ya validados</div>
+          <div style="font-weight: 600; color: #1e40af;">${datos.yaValidados}</div>
+        </div>
+        ` : ''}
+      </div>
+      
+      ${puedeValidar ? `
+        <div style="background: #ecfdf5; padding: 10px; border-radius: 6px; border: 1px solid #d1fae5; margin: 12px 0;">
+          <div style="display: flex; align-items: center; gap: 8px; color: #065f46;">
+            <i class="fas fa-check-circle"></i>
+            <span>✅ Todos los elementos están completamente limpiados y listos para validar</span>
+          </div>
+        </div>
+      ` : datos.completados === datos.total && datos.yaValidados > 0 ? `
+        <div style="background: #e0e7ff; padding: 10px; border-radius: 6px; border: 1px solid #c7d2fe; margin: 12px 0;">
+          <div style="display: flex; align-items: center; gap: 8px; color: #3730a3;">
+            <i class="fas fa-info-circle"></i>
+            <span>ℹ️ Esta máquina ya tiene ${datos.yaValidados} elemento(s) validados</span>
+          </div>
+        </div>
+      ` : `
+        <div style="background: #fef3c7; padding: 10px; border-radius: 6px; border: 1px solid #fde68a; margin: 12px 0;">
+          <div style="display: flex; align-items: center; gap: 8px; color: #92400e;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>⚠️ No se puede validar. Aún hay ${datos.pendientes} elemento(s) pendientes.</span>
+          </div>
+        </div>
+      `}
+      
+      ${puedeValidar ? `
+        <p style="margin: 8px 0; color: #059669; font-weight: 600;">
+          <i class="fa-jelly fa-regular fa-thumbs-up"></i> Esta acción registrará su nombre como validador de todos los elementos.
+        </p>
+      ` : ''}
+    </div>
+  `;
+  
+  document.getElementById('modal-message').innerHTML = detalles;
+  
+  // Cambiar el título del modal
+  const modalTitle = document.querySelector('.modal-title');
+  if (modalTitle) {
+    modalTitle.textContent = 'Validar Limpieza Completa';
+  }
+  
+  // Configurar botones del modal
+  const confirmBtn = document.querySelector('.btn-confirm');
+  const cancelBtn = document.querySelector('.btn-cancel');
+  
+  if (confirmBtn) {
+    confirmBtn.disabled = !puedeValidar;
+    confirmBtn.style.opacity = puedeValidar ? '1' : '0.5';
+    confirmBtn.style.cursor = puedeValidar ? 'pointer' : 'not-allowed';
+    confirmBtn.textContent = 'Validar';
+    confirmBtn.style.backgroundColor = puedeValidar ? '#10b981' : '#9ca3af';
+    confirmBtn.style.borderColor = puedeValidar ? '#10b981' : '#9ca3af';
+  }
+  
+  if (cancelBtn) {
+    cancelBtn.textContent = 'Cancelar';
+  }
+  
+  // Mostrar el modal
+  document.getElementById('confirm-modal').classList.remove('hidden');
+}
+
+function ejecutarValidacionMaquina() {
+  if (!window.pendingMaquinaValidation) {
+    cerrarModal();
+    return;
+  }
+  
+  const { maquinaId, maquinaNombre, datos } = window.pendingMaquinaValidation;
+  
+  // Verificar nuevamente que se pueda validar
+  if (!datos.puedeValidar) {
+    showAlert('error', 'No se puede validar', 
+      `La máquina no cumple con los requisitos para validación.\n` +
+      `Completados: ${datos.completados}/${datos.total}\n` +
+      `Ya validados: ${datos.yaValidados}`);
+    cerrarModal();
+    return;
+  }
+  
+  cerrarModal();
+  showLoading();
+  
+  console.log('✅ Validando máquina completa:', { maquinaId, maquinaNombre });
+  
+  // Usar la nueva función del backend
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Validación exitosa!", 
+          `La máquina "${maquinaNombre}" ha sido validada completamente.\n` +
+          `Registros actualizados: ${result.registrosActualizados || 0}`);
+        
+        // Recargar el consolidado
+        loadPlaneaciones();
+        
+        // Actualizar estados en sidebar
+        actualizarEstadosSidebar();
+      } else {
+        showAlert('error', 'Error al validar', result ? result.message : 'Error desconocido');
+      }
+      window.pendingMaquinaValidation = null;
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error de conexión', error.message);
+      window.pendingMaquinaValidation = null;
+    })
+    .validarMaquinaCompletaPorJefe(maquinaId, currentUser.nombre); // ¡CAMBIAR AQUÍ!
+}
+
+function ejecutarValidacionMaquina() {
+  if (!window.pendingMaquinaValidation) {
+    cerrarModal();
+    return;
+  }
+  
+  const { maquinaId, maquinaNombre } = window.pendingMaquinaValidation;
+  
+  cerrarModal();
+  showLoading();
+  
+  console.log('✅ Validando máquina completa:', { maquinaId, maquinaNombre });
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Validación exitosa!", 
+          `La máquina "${maquinaNombre}" ha sido validada completamente.\n` +
+          `Elementos validados: ${result.elementosValidados || 0}`);
+        
+        // Recargar el consolidado
+        loadPlaneaciones();
+        
+        // Actualizar estados en sidebar
+        actualizarEstadosSidebar();
+      } else {
+        showAlert('error', 'Error al validar', result ? result.message : 'Error desconocido');
+      }
+      window.pendingMaquinaValidation = null;
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error de conexión', error.message);
+      window.pendingMaquinaValidation = null;
+    })
+    .validarMaquinaCompletaPorJefe(maquinaId, currentUser.nombre);
+}
+
+// ==================== FUNCIONES DE TURNO ====================
+
+function obtenerTurnoActual() {
+  const horaActual = new Date().getHours();
+  
+  // MAÑANA: 6:00 AM - 1:59 PM (6 a 13 horas)
+  // TARDE: 2:00 PM - 9:59 PM (14 a 21 horas)
+  // NOCHE: 10:00 PM - 5:59 AM (22 a 5 horas)
+  
+  if (horaActual >= 6 && horaActual < 14) {
+    return 'MAÑANA';
+  } else if (horaActual >= 14 && horaActual < 22) {
+    return 'TARDE';
+  } else {
+    return 'NOCHE';
+  }
+}
+
+function obtenerTurnoContrario(turno) {
+  const turnosContrarios = {
+    'MAÑANA': 'TARDE',
+    'TARDE': 'NOCHE',
+    'NOCHE': 'MAÑANA'
+  };
+  
+  return turnosContrarios[turno.toUpperCase()] || 'TARDE';
+}
+
+// ==================== REPORTE POR MÁQUINA VALIDADA ====================
+
+function generarReporteMaquina(maquinaId, maquinaNombre) {
+  if (currentUser.rol !== 'jefe') {
+    showAlert('error', 'Permiso denegado', 'Solo los jefes pueden generar reportes');
+    return;
+  }
+  
+  document.getElementById('modal-message').innerHTML = `
+    <strong>¿Generar reporte PDF de esta máquina?</strong>
+    <br><br>
+    <div style="background: #fee2e2; padding: 12px; border-radius: 6px; margin: 10px 0;">
+      <strong>${maquinaNombre}</strong> (ID: ${maquinaId})
+    </div>
+    <p>El reporte será enviado al jefe del turno siguiente</p>
+  `;
+  
+  window.pendingReporteMaquina = {
+    maquinaId: maquinaId,
+    maquinaNombre: maquinaNombre
+  };
+  
+  document.getElementById('confirm-modal').classList.remove('hidden');
+}
+
+function ejecutarGenerarReporteMaquina() {
+  if (!window.pendingReporteMaquina) {
+    cerrarModal();
+    return;
+  }
+  
+  const { maquinaId, maquinaNombre } = window.pendingReporteMaquina;
+  
+  cerrarModal();
+  showLoading();
+  
+  const turnoActual = obtenerTurnoActual();
+  const turnoDestino = obtenerTurnoContrario(turnoActual);
+  const procesoUsuario = currentUser.proceso || 'GENERAL';
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "✅ Reporte enviado", 
+          `Reporte de "${maquinaNombre}" enviado al turno ${turnoDestino}`);
+      } else {
+        showAlert('error', 'Error', result ? result.message : 'Error al generar reporte');
+      }
+      window.pendingReporteMaquina = null;
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error de conexión', error.message);
+      window.pendingReporteMaquina = null;
+    })
+    .generarReporteMaquinaPDF(
+      maquinaId,
+      maquinaNombre,
+      currentUser.nombre,
+      currentUser.cedula,
+      turnoActual,
+      turnoDestino,
+      procesoUsuario
+    );
+}
+
+// ==================== FINALIZAR LIMPIEZA (OPERARIO) ====================
+
+function finalizarLimpieza() {
+  // Verificar que hay un elemento seleccionado
+  if (!currentElementoId || !currentMaquinaId) {
+    showAlert('error', 'Error', 'No hay elemento seleccionado');
+    return;
+  }
+  
+  // Verificar que el usuario sea operario
+  if (currentUser.rol !== 'operario') {
+    showAlert('error', 'Permiso denegado', 'Solo los operarios pueden finalizar limpiezas');
+    return;
+  }
+  
+  console.log('🔍 Finalizando limpieza para elemento:', {
+    elementoId: currentElementoId,
+    elementoNombre: currentElementoNombre,
+    maquinaId: currentMaquinaId,
+    maquinaNombre: currentMaquinaNombre
+  });
+  
+  // Verificar cuáles tipos de limpieza están pendientes
+  const tiposPendientes = obtenerTiposLimpiezaPendientes();
+  
+  if (tiposPendientes.length === 0) {
+    showAlert('info', '¡Genial!', 'No hay limpiezas pendientes para finalizar');
+    return;
+  }
+  
+  // Mostrar modal de confirmación con los tipos pendientes
+  mostrarModalFinalizarLimpieza(tiposPendientes);
+}
+
+function obtenerTiposLimpiezaPendientes() {
+  if (!currentElementoTiposLimpieza || currentElementoTiposLimpieza.length === 0) {
+    return [];
+  }
+  
+  const pendientes = currentElementoTiposLimpieza.filter(reg => 
+    reg.estado !== 'COMPLETADO' && reg.estado !== 'VALIDADO'
+  );
+  
+  return pendientes.map(reg => reg.tipoLimpieza);
+}
+
+function mostrarModalFinalizarLimpieza(tiposPendientes) {
+  const tiposNombres = {
+    'SECO': 'Limpieza Seco',
+    'HUMEDO': 'Limpieza Húmedo', 
+    'DESINFECCION': 'Desinfección'
+  };
+  
+  let listaTipos = '';
+  tiposPendientes.forEach(tipo => {
+    listaTipos += `<li>• ${tiposNombres[tipo] || tipo}</li>`;
+  });
+  
+  document.getElementById('modal-message').innerHTML = `
+    <strong>¿Finalizar todas las limpiezas pendientes de este elemento?</strong>
+    <br><br>
+    <div style="background: #f0f9ff; padding: 12px; border-radius: 6px; margin: 10px 0;">
+      <div style="font-weight: 600; color: #0369a1; margin-bottom: 4px;">
+        <i class="fas fa-industry"></i> ELEMENTO A FINALIZAR:
+      </div>
+      <div style="color: #0c4a6e; font-size: 14px;">
+        <strong>${currentElementoNombre}</strong><br>
+        Máquina: ${currentMaquinaNombre}
+      </div>
+    </div>
+    
+    <div style="font-size: 13px; color: #4b5563; margin: 12px 0;">
+      <p style="margin: 8px 0;"><i class="fas fa-broom"></i> Limpiezas pendientes:</p>
+      <ul style="margin: 8px 0; padding-left: 20px;">
+        ${listaTipos}
+      </ul>
+      <p style="margin: 8px 0; color: #059669; font-weight: 600;">
+        <i class="fas fa-check-circle"></i> Esta acción marcará como COMPLETADO todos los tipos de limpieza pendientes.
+      </p>
+    </div>
+  `;
+  
+  // Cambiar título del modal
+  const modalTitle = document.querySelector('.modal-title');
+  if (modalTitle) {
+    modalTitle.textContent = 'Finalizar Limpieza Completa';
+  }
+  
+  // Configurar botones del modal
+  const confirmBtn = document.querySelector('.btn-confirm');
+  const cancelBtn = document.querySelector('.btn-cancel');
+  
+  if (confirmBtn) {
+    confirmBtn.textContent = 'Finalizar Todas';
+    confirmBtn.style.backgroundColor = '#10b981';
+    confirmBtn.style.borderColor = '#10b981';
+  }
+  
+  if (cancelBtn) {
+    cancelBtn.textContent = 'Cancelar';
+  }
+  
+  // Mostrar el modal
+  document.getElementById('confirm-modal').classList.remove('hidden');
+  
+  // Configurar callback
+  window.pendingFinalizarCompleto = {
+    elementoId: currentElementoId,
+    tiposPendientes: tiposPendientes
+  };
+}
+
+function confirmarFinalizarCompleto() {
+  if (!window.pendingFinalizarCompleto) return;
+  
+  const { elementoId, tiposPendientes } = window.pendingFinalizarCompleto;
+  
+  cerrarModal();
+  showLoading();
+  
+  console.log('📤 Finalizando limpiezas completas para:', {
+    elementoId: elementoId,
+    tipos: tiposPendientes,
+    responsable: currentUser.nombre
+  });
+  
+  // Obtener fecha actual
+  const fechaActual = new Date().toISOString().split('T')[0];
+  
+  // Para cada tipo pendiente, obtener el registro ID y actualizarlo
+  const actualizaciones = tiposPendientes.map(tipo => {
+    const registro = currentElementoTiposLimpieza.find(reg => 
+      reg.tipoLimpieza === tipo && 
+      reg.estado !== 'COMPLETADO' && 
+      reg.estado !== 'VALIDADO'
+    );
+    
+    return registro ? {
+      registroId: registro.id,
+      tipoLimpieza: tipo,
+      datos: {
+        estado: 'COMPLETADO',
+        responsable: currentUser.nombre,
+        fechaRealizacion: fechaActual,
+        observaciones: 'Finalizado automáticamente desde "Finalizar Limpieza"',
+        fechaFinalizacion: new Date().toISOString()
+      }
+    } : null;
+  }).filter(item => item !== null);
+  
+  console.log('🔄 Actualizaciones a realizar:', actualizaciones.length);
+  
+  if (actualizaciones.length === 0) {
+    hideLoading();
+    showAlert('info', 'Sin cambios', 'No hay limpiezas pendientes para actualizar');
+    window.pendingFinalizarCompleto = null;
+    return;
+  }
+  
+  // Contador para seguimiento
+  let actualizados = 0;
+  let errores = 0;
+  const total = actualizaciones.length;
+  
+  // Actualizar cada registro
+  actualizaciones.forEach((actualizacion, index) => {
+    google.script.run
+      .withSuccessHandler(function(result) {
+        actualizados++;
+        
+        if (result && !result.success) {
+          errores++;
+          console.error(`❌ Error en ${actualizacion.tipoLimpieza}:`, result.message);
+        } else {
+          console.log(`✅ ${actualizacion.tipoLimpieza} completado`);
+        }
+        
+        // Cuando todas las actualizaciones terminen
+        if (actualizados + errores === total) {
+          hideLoading();
+          
+          if (errores === 0) {
+            showAlert("success", "✅ ¡Éxito!", 
+              `Finalizadas ${actualizados} limpieza(s) para este elemento`);
+            
+            // Recargar los datos del elemento
+            loadElementoTiposLimpieza();
+            
+            // Actualizar estados en sidebar
+            actualizarEstadosSidebar();
+            
+          } else if (actualizados > 0) {
+            showAlert("warning", "Parcialmente completado", 
+              `${actualizados} completados, ${errores} errores`);
+            
+            // Recargar igualmente
+            loadElementoTiposLimpieza();
+            
+          } else {
+            showAlert('error', 'Error', `No se pudo finalizar ninguna limpieza`);
+          }
+          
+          window.pendingFinalizarCompleto = null;
+        }
+      })
+      .withFailureHandler(function(error) {
+        actualizados++;
+        errores++;
+        console.error(`❌ Error de conexión en ${actualizacion.tipoLimpieza}:`, error);
+        
+        if (actualizados + errores === total) {
+          hideLoading();
+          showAlert('error', 'Error', `Errores al finalizar: ${errores}/${total}`);
+          window.pendingFinalizarCompleto = null;
+        }
+      })
+      .actualizarRegistroLimpiezaCompleto(
+        actualizacion.registroId,
+        actualizacion.datos
+      );
+  });
+}
+
+
+
+</script>
+

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema PHLYD</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+   <?!= include('styles'); ?>
+</head>
+<body>
+  <!-- LOGIN VIEW -->
+  <div id="login-view" class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="login-logo-row">
+          <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRvdptdCHB1bOarb5mxM-jRVL2XWq6FdYKUcA&s" alt="Doria Logo" class="login-logo">
+          <div class="login-titles">
+            <span class="login-title">Sistema de</span>
+            <span class="login-subtitle">PHLYD</span>
+          </div>
+        </div>
+      </div>
+      <div class="login-form">
+        <input type="text" id="cedula-input" class="input-field" placeholder="Ingrese su cédula...">
+        <button class="btn btn-primary btn-block" onclick="handleLogin()">Ingresar</button>
+      </div>
+      <p id="login-error" class="error-message hidden"></p>
+    </div>
+  </div>
+
+  <!-- MAIN DASHBOARD VIEW -->
+  <div id="dashboard-view" class="dashboard-container hidden">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo-row">
+          <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRvdptdCHB1bOarb5mxM-jRVL2XWq6FdYKUcA&s" alt="Doria Logo" class="sidebar-logo">
+          <span class="sidebar-title">PHLYD</span>
+        </div>
+        <p class="sidebar-subtitle">Protocolo de higiene, limpieza y desinfección</p>
+      </div>
+      
+      <div class="sidebar-divider"></div>
+      
+      <div class="sidebar-menu">
+        <div class="menu-item">
+          <div class="menu-header" onclick="toggleMenu('maquinas-menu')">
+            <span>Maquinas</span>
+            <span class="menu-arrow" id="maquinas-menu-arrow">▼</span>
+          </div>
+          <div id="maquinas-menu" class="menu-content hidden">
+            <!-- Máquinas se cargarán dinámicamente -->
+          </div>
+        </div>
+      </div>
+      
+      <div class="sidebar-footer">
+  <p class="user-greeting">¡Hola!</p>
+  <p class="user-name" id="user-name-display">Nombre Usuario</p>
+  <div class="proceso-indicator" id="proceso-indicator">
+    <!-- Se llenará dinámicamente -->
+  </div>
+  <button class="btn btn-logout" onclick="handleLogout()">
+    <span>↪</span> Cerrar sesión
+  </button>
+</div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+      <!-- TABS -->
+      <div class="tabs-container">
+        <button class="tab-btn" id="tab-avances" onclick="switchTab('avances')">Avances</button>
+        <button class="tab-btn active" id="tab-planeacion" onclick="switchTab('planeacion')">Planeación</button>
+        <button class="tab-btn" id="tab-proceso" onclick="switchTab('proceso')">En proceso</button>
+      </div>
+
+      <!-- TAB CONTENT: AVANCES -->
+      <div id="content-avances" class="tab-content hidden">
+        <h2 class="content-title">Estadística de la limpieza general de cada una de las maquinas</h2>
+        <div id="avances-grid" class="avances-grid">
+          <!-- Se carga dinámicamente -->
+        </div>
+      </div>
+
+      <!-- TAB CONTENT: PLANEACION -->
+      <div id="content-planeacion" class="tab-content">
+        <h2 class="content-title">Planeación de la limpieza anual - semestral - trimestral o mensual de cada maquina</h2>
+        
+        <!-- Nueva interfaz de planeación con selección de máquinas y elementos -->
+        <div id="planeacion-content" class="planeacion-wrapper">
+          <!-- Panel de selección de máquinas -->
+          <div class="planeacion-selector">
+            <h3 class="selector-title">Seleccionar Máquinas y Elementos</h3>
+            
+            <div id="maquinas-tree" class="maquinas-tree">
+              <!-- Árbol de máquinas con checkboxes -->
+            </div>
+          </div>
+          
+          <!-- Panel de configuración -->
+          <div class="planeacion-config">
+            <div class="config-section">
+              <h3 class="config-title">Configuración de Frecuencia</h3>
+              <div class="form-group">
+                <label class="form-label">Frecuencia de Limpieza</label>
+                <select id="select-frecuencia" class="select-field">
+                  <option value="Mensual">Mensual</option>
+                  <option value="Trimestral">Trimestral</option>
+                  <option value="Semestral">Semestral</option>
+                  <option value="Anual">Anual</option>
+                </select>
+              </div>
+            </div>
+            
+            <div class="config-section">
+              <h3 class="config-title">Tipos de Limpieza por Elemento</h3>
+              <div id="elementos-config-list" class="elementos-config-list">
+                <p class="config-placeholder">Seleccione elementos del árbol para configurar sus tipos de limpieza</p>
+              </div>
+            </div>
+            
+            <button class="btn btn-primary btn-guardar-plan" onclick="guardarPlaneacion()">Guardar Planeación</button>
+          </div>
+        </div>
+
+        <div id="planeaciones-existentes" class="planeaciones-section">
+          <h3 class="section-title">Planeaciones Existentes</h3>
+          <div id="planeaciones-grid" class="planeaciones-grid">
+            <!-- Se carga dinámicamente -->
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB CONTENT: EN PROCESO -->
+      <div id="content-proceso" class="tab-content hidden">
+        <h2 class="content-title">Limpiezas en proceso</h2>
+        <div id="proceso-content" class="proceso-container">
+          <!-- Se carga dinámicamente -->
+        </div>
+      </div>
+
+      <!-- ELEMENTO DETAIL VIEW -->
+      <div id="content-elemento" class="tab-content hidden">
+        <h2 class="elemento-title" id="elemento-title">Maquina 17 - Área 1</h2>
+        <p class="elemento-instruction">Marqué el cuadrado con un click cuando ya haya realizado totalmente la limpieza de cada tipo</p>
+        
+        <div id="limpieza-sections" class="limpieza-sections">
+          <!-- Se generan dinámicamente según la planeación -->
+        </div>
+
+        <div class="elemento-actions" id="elemento-actions">
+          <button class="btn btn-finalizar hidden" id="btn-validar-jefe" onclick="validarLimpiezaCompleta()">
+            <i class="fas fa-check-circle"></i> Validar Limpieza (jefe)
+          </button>
+          <button class="btn btn-finalizar hidden" id="btn-finalizar" onclick="finalizarLimpieza()">
+            <i class="fas fa-flag-checkered"></i> Finalizar Limpieza
+          </button>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- MODAL DE CONFIRMACIÓN -->
+<div id="confirm-modal" class="modal hidden">
+  <div class="modal-overlay" onclick="cerrarModal()"></div>
+  <div class="modal-content">
+    <div class="modal-title">Confirmar Validación</div>
+    <div class="modal-message" id="modal-message"></div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn btn-confirm" onclick="confirmarModal()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+  <!-- LOADING OVERLAY -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="loading-spinner"></div>
+  </div>
+
+  <?!= include('javascript'); ?>
+</body>
+</html>
